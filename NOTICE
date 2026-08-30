@@ -1,0 +1,9 @@
+PyTetra-live 1.0.0
+
+The minimal SpyServer protocol constants and structures are interoperable with
+the public SpyServer protocol definitions by Youssef Touil and corrections used
+by the GPL-licensed SDR++ SpyServer source module.
+
+PyTetra-live is an independent client. It does not contain or implement the
+SpyServer service.
+

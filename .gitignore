@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+/pip-*/
+/tmp*/
+*.iq
+*.bits
+*.log
+!tests/data/*.bits

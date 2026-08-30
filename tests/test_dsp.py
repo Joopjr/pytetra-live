@@ -1,0 +1,122 @@
+import unittest
+from pathlib import Path
+
+import numpy as np
+from scipy import signal
+
+from pytetra_live.dsp import (
+    BurstFramer,
+    LiveTetraDemodulator,
+    StreamingResampler,
+    WORK_RATE,
+    burst_quality,
+    rrc_taps,
+)
+
+
+class DspTestCase(unittest.TestCase):
+    @staticmethod
+    def fixture_path():
+        return Path(__file__).parent / "data" / "tetra_downlink.bits"
+
+    def test_streaming_resampler_has_no_chunk_duplicates(self):
+        source = np.arange(1000, dtype=np.float32).astype(np.complex64)
+        one = StreamingResampler(1000, 800).process(source)
+        split_resampler = StreamingResampler(1000, 800)
+        split = np.concatenate(
+            [split_resampler.process(source[:333]), split_resampler.process(source[333:])]
+        )
+        np.testing.assert_allclose(split, one, atol=1e-5)
+
+    def test_public_example_contains_200_valid_bursts(self):
+        path = self.fixture_path()
+        bits = np.fromfile(path, dtype=np.uint8)
+        qualities = [burst_quality(bits[i:i + 510]) for i in range(0, len(bits), 510)]
+        self.assertEqual(len(qualities), 200)
+        self.assertTrue(all(quality is not None for quality in qualities))
+
+    def test_framer_resolves_mapping_and_emits_all_bursts(self):
+        path = self.fixture_path()
+        bits = np.fromfile(path, dtype=np.uint8).reshape(-1, 2)
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray([reverse[tuple(pair)] for pair in bits], dtype=np.uint8)
+        framer = BurstFramer()
+        bursts = []
+        for start in range(0, len(values), 137):
+            decoded, gap = framer.feed(values[start:start + 137])
+            self.assertFalse(gap)
+            bursts.extend(decoded)
+        self.assertEqual(len(bursts), 200)
+        self.assertTrue(framer.locked)
+
+    def test_framer_keeps_lock_across_one_damaged_burst(self):
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:3 * 510].copy()
+        # Damage the complete middle burst so it cannot pass structural burst
+        # validation, while leaving the following burst perfectly aligned.
+        raw[510:1020] = 0
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray(
+            [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
+            dtype=np.uint8,
+        )
+        framer = BurstFramer(rejection_limit=3)
+
+        bursts, gap = framer.feed(values)
+
+        self.assertTrue(gap)
+        self.assertEqual(len(bursts), 2)
+        self.assertTrue(framer.locked)
+        self.assertEqual(framer.rejected, 1)
+        self.assertEqual(framer.consecutive_rejections, 0)
+
+    def test_framer_releases_lock_after_sustained_damage(self):
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:4 * 510].copy()
+        raw[510:] = 0
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray(
+            [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
+            dtype=np.uint8,
+        )
+        framer = BurstFramer(rejection_limit=3)
+
+        bursts, gap = framer.feed(values)
+
+        self.assertTrue(gap)
+        self.assertEqual(len(bursts), 1)
+        self.assertFalse(framer.locked)
+        self.assertIsNone(framer.mapping)
+
+    def test_live_pipeline_acquires_frequency_timing_and_bursts(self):
+        path = self.fixture_path()
+        raw_bits = np.fromfile(path, dtype=np.uint8)[:40 * 510]
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray(
+            [reverse[tuple(pair)] for pair in raw_bits.reshape(-1, 2)],
+            dtype=np.uint8,
+        )
+        ideal = np.asarray(
+            [np.pi / 4, 3 * np.pi / 4, -3 * np.pi / 4, -np.pi / 4]
+        )
+        symbols = np.exp(1j * np.cumsum(ideal[values])).astype(np.complex64)
+        transmit = np.zeros(len(symbols) * 4, dtype=np.complex64)
+        transmit[::4] = symbols
+        transmit = signal.lfilter(rrc_taps(), [1.0], transmit).astype(np.complex64)
+        positions = np.arange(len(transmit), dtype=np.float64)
+        transmit *= np.exp(1j * 2.0 * np.pi * 250.0 * positions / WORK_RATE)
+
+        demodulator = LiveTetraDemodulator(
+            WORK_RATE, acquisition_seconds=0.1
+        )
+        bursts = []
+        for start in range(0, len(transmit), 1024):
+            decoded, gap = demodulator.process(transmit[start:start + 1024])
+            self.assertFalse(gap)
+            bursts.extend(decoded)
+
+        self.assertGreaterEqual(len(bursts), 38)
+        self.assertTrue(demodulator.framer.locked)
+        self.assertAlmostEqual(demodulator.carrier.frequency, 250.0, delta=15.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
