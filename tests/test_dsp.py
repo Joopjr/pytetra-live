@@ -8,6 +8,7 @@ from pytetra_live.dsp import (
     BurstFramer,
     CarrierPLL,
     LiveTetraDemodulator,
+    SignalQualityMonitor,
     StreamingResampler,
     WORK_RATE,
     burst_quality,
@@ -29,6 +30,36 @@ class DspTestCase(unittest.TestCase):
             [split_resampler.process(source[:333]), split_resampler.process(source[333:])]
         )
         np.testing.assert_allclose(split, one, atol=1e-5)
+
+    def test_signal_monitor_reports_level_and_in_band_snr(self):
+        sample_rate = 93750.0
+        rng = np.random.default_rng(7)
+        count = int(sample_rate)
+        positions = np.arange(count, dtype=np.float64)
+        noise = 0.02 * (
+            rng.standard_normal(count) + 1j * rng.standard_normal(count)
+        )
+        tone = 0.20 * np.exp(1j * 2.0 * np.pi * 4000.0 * positions / sample_rate)
+        monitor = SignalQualityMonitor(sample_rate)
+
+        monitor.update((tone + noise).astype(np.complex64))
+
+        self.assertGreater(monitor.input_level_dbfs, -20.0)
+        self.assertGreater(monitor.estimated_snr_db, 10.0)
+
+    def test_locked_carrier_loop_rejects_large_single_jump(self):
+        pll = CarrierPLL(WORK_RATE, 250.0)
+        # Force a deterministic estimator result without coupling this test to
+        # the waveform estimator's window behaviour.
+        original = __import__("pytetra_live.dsp", fromlist=["dummy"])
+        measurement = original.fourth_power_frequency_measurement
+        try:
+            original.fourth_power_frequency_measurement = lambda samples, rate: (900.0, 0.5)
+            pll.process(np.ones(4096, dtype=np.complex64), locked=True)
+        finally:
+            original.fourth_power_frequency_measurement = measurement
+
+        self.assertEqual(pll.frequency, 250.0)
 
     def test_soft_confidence_polarity_matches_all_hard_mappings(self):
         values = np.asarray([0, 1, 2, 3], dtype=np.uint8)

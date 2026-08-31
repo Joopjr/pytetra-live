@@ -296,6 +296,30 @@ class LiveReceiver:
                         100.0 * dsp.timing_seconds / total_stages,
                         100.0 * dsp.framing_seconds / total_stages,
                     )
+                    accepted = demodulator.framer.accepted
+                    rejected = demodulator.framer.rejected
+                    examined = accepted + rejected
+                    burst_success = 100.0 * accepted / examined if examined else 0.0
+                    training_errors = (
+                        demodulator.framer.training_error_sum / accepted
+                        if accepted else 0.0
+                    )
+                    carrier = demodulator.carrier
+                    LOG.info(
+                        "Signal quality: input_level=%.1f dBFS estimated_snr=%.1f dB "
+                        "carrier_coherence=%.3f frequency_error=%+.2f Hz "
+                        "phase_error_rms=%.1f deg timing_error_rms=%.4f "
+                        "burst_success=%.1f%% training_errors=%.2f lock=%s",
+                        dsp.input_level_dbfs,
+                        dsp.estimated_snr_db,
+                        carrier.coherence if carrier is not None else 0.0,
+                        carrier.frequency if carrier is not None else 0.0,
+                        dsp.phase_error_rms_degrees,
+                        demodulator.timing.error_rms,
+                        burst_success,
+                        training_errors,
+                        demodulator.framer.locked,
+                    )
                     next_performance_log = now + 30.0
             if reader_error:
                 raise reader_error[0]

@@ -184,21 +184,29 @@ class CarrierPLL:
         self.frequency = float(initial_frequency)
         self.reference_frequency = float(initial_frequency)
         self.phase = 0.0
-        self.frequency_alpha = 0.02
+        self.coherence = 0.0
+        self.last_measurement = float(initial_frequency)
 
-    def process(self, samples):
+    def process(self, samples, locked=False):
         if len(samples) >= 4096:
             estimate, coherence = fourth_power_frequency_measurement(
                 samples, self.sample_rate
             )
+            self.coherence += 0.10 * (coherence - self.coherence)
+            self.last_measurement = float(estimate)
             # The estimator measures the complete current residual. Smooth it
             # slowly so a single faded block cannot retune the stream.
             if (
                 np.isfinite(estimate)
                 and abs(estimate) <= 2250.0
                 and coherence >= 0.02
+                and (not locked or abs(estimate - self.frequency) <= 450.0)
             ):
-                self.frequency += self.frequency_alpha * (
+                if locked:
+                    alpha = 0.004 if coherence < 0.08 else 0.010
+                else:
+                    alpha = 0.015 if coherence < 0.08 else 0.035
+                self.frequency += alpha * (
                     estimate - self.frequency
                 )
         step = 2.0 * np.pi * self.frequency / self.sample_rate
@@ -221,6 +229,8 @@ class StreamingGardner:
         self.filtered_error = 0.0
         self.clock_error = 0.0
         self.energy_reference = 1e-6
+        self.error_square_sum = 0.0
+        self.error_count = 0
 
     @staticmethod
     def _interp(data, position):
@@ -228,7 +238,7 @@ class StreamingGardner:
         fraction = position - index
         return data[index] + (data[index + 1] - data[index]) * fraction
 
-    def process(self, samples):
+    def process(self, samples, locked=False):
         self.buffer = np.concatenate((self.buffer, np.asarray(samples, dtype=np.complex64)))
         if len(self.buffer) < 8:
             return np.empty(0, dtype=np.complex64)
@@ -271,10 +281,18 @@ class StreamingGardner:
                         / (energy + 1e-12)
                     )
                     error = max(-1.0, min(1.0, error))
-                    filtered_error += 0.04 * (error - filtered_error)
-                    clock_error += 0.002 * (filtered_error - clock_error)
-                    omega = max(3.8, min(4.2, omega + 0.00008 * clock_error))
-                    correction = max(-0.08, min(0.08, 0.020 * filtered_error))
+                    self.error_square_sum += error * error
+                    self.error_count += 1
+                    filter_alpha = 0.025 if locked else 0.050
+                    filtered_error += filter_alpha * (error - filtered_error)
+                    clock_alpha = 0.0010 if locked else 0.0025
+                    clock_error += clock_alpha * (filtered_error - clock_error)
+                    stress = min(1.0, abs(clock_error) / 0.08)
+                    omega_gain = (0.000025 + 0.000045 * stress) if locked else 0.00010
+                    phase_gain = (0.008 + 0.008 * stress) if locked else 0.024
+                    omega = max(3.8, min(4.2, omega + omega_gain * clock_error))
+                    limit = 0.045 if locked else 0.09
+                    correction = max(-limit, min(limit, phase_gain * filtered_error))
             output[output_count] = current
             output_count += 1
             previous_symbol = current
@@ -298,6 +316,12 @@ class StreamingGardner:
             if self.previous_position is not None:
                 self.previous_position -= keep_from
         return output[:output_count]
+
+    @property
+    def error_rms(self):
+        if not self.error_count:
+            return 0.0
+        return float(np.sqrt(self.error_square_sum / self.error_count))
 
 
 def quadrants(symbols, previous_symbol=None, return_distances=False):
@@ -389,6 +413,8 @@ class BurstFramer:
         self.distance_buffer = np.empty((0, 4), dtype=np.float32)
         self.soft_bits = np.empty(0, dtype=np.float32)
         self.last_confidences = []
+        self.accepted = 0
+        self.training_error_sum = 0
 
     @staticmethod
     def _find_sync_candidates(bits):
@@ -507,6 +533,8 @@ class BurstFramer:
                 )
                 break
             bursts.append(burst.copy())
+            self.accepted += 1
+            self.training_error_sum += int(quality[1])
             self.last_confidences.append(self.soft_bits[:BURST_BITS].copy())
             self.consecutive_rejections = 0
             self.bits = self.bits[BURST_BITS:]
@@ -527,6 +555,60 @@ class DemodulatorStats:
     carrier_seconds: float = 0.0
     timing_seconds: float = 0.0
     framing_seconds: float = 0.0
+    input_level_dbfs: float = float("-inf")
+    estimated_snr_db: float = float("nan")
+    phase_error_rms_degrees: float = 0.0
+
+
+class SignalQualityMonitor:
+    """Low-rate RF measurements which never influence demodulation."""
+
+    def __init__(self, sample_rate):
+        self.sample_rate = float(sample_rate)
+        self.input_power = None
+        self.estimated_snr_db = float("nan")
+        self.samples_since_spectrum = 0
+
+    def update(self, samples):
+        samples = np.asarray(samples, dtype=np.complex64)
+        if not len(samples):
+            return
+        power = float(np.mean(np.abs(samples) ** 2))
+        duration = len(samples) / self.sample_rate
+        alpha = 1.0 - np.exp(-duration / 1.0)
+        if np.isfinite(power) and power > 0.0:
+            self.input_power = power if self.input_power is None else (
+                self.input_power + alpha * (power - self.input_power)
+            )
+        self.samples_since_spectrum += len(samples)
+        if self.samples_since_spectrum < self.sample_rate:
+            return
+        self.samples_since_spectrum = 0
+        count = min(len(samples), 65536)
+        if count < 4096:
+            return
+        window = np.hanning(count)
+        spectrum = np.fft.fftshift(np.fft.fft(samples[-count:] * window))
+        frequencies = np.fft.fftshift(np.fft.fftfreq(count, 1.0 / self.sample_rate))
+        psd = np.abs(spectrum) ** 2 / max(float(np.sum(window ** 2)), 1.0)
+        channel = np.abs(frequencies) <= 12500.0
+        noise = (np.abs(frequencies) >= 18000.0) & (
+            np.abs(frequencies) <= min(40000.0, 0.45 * self.sample_rate)
+        )
+        if not np.any(channel) or np.count_nonzero(noise) < 32:
+            return
+        noise_per_bin = float(np.median(psd[noise]))
+        noise_in_channel = noise_per_bin * int(np.count_nonzero(channel))
+        signal_power = max(float(np.sum(psd[channel])) - noise_in_channel, 1e-20)
+        self.estimated_snr_db = float(
+            10.0 * np.log10(signal_power / max(noise_in_channel, 1e-20))
+        )
+
+    @property
+    def input_level_dbfs(self):
+        if self.input_power is None:
+            return float("-inf")
+        return float(10.0 * np.log10(max(self.input_power, 1e-20)))
 
 
 class LiveTetraDemodulator:
@@ -554,6 +636,7 @@ class LiveTetraDemodulator:
             len(self.channel_taps) - 1, dtype=np.complex128
         )
         self.normalizer = StreamingRmsNormalizer()
+        self.signal_monitor = SignalQualityMonitor(self.input_rate)
         self.resampler = StreamingResampler(self.input_rate, WORK_RATE)
         self.taps = rrc_taps()
         self.filter_state = np.zeros(len(self.taps) - 1, dtype=np.complex128)
@@ -583,6 +666,7 @@ class LiveTetraDemodulator:
             len(self.channel_taps) - 1, dtype=np.complex128
         )
         self.normalizer = StreamingRmsNormalizer()
+        self.signal_monitor = SignalQualityMonitor(self.input_rate)
         self.filter_state = np.zeros(len(self.taps) - 1, dtype=np.complex128)
         self.acquisition = []
         self.carrier = (
@@ -600,6 +684,9 @@ class LiveTetraDemodulator:
         process_started = time.perf_counter()
         self.stats.input_samples += len(iq)
         shifted = self.shifter.process(np.asarray(iq, dtype=np.complex64))
+        self.signal_monitor.update(shifted)
+        self.stats.input_level_dbfs = self.signal_monitor.input_level_dbfs
+        self.stats.estimated_snr_db = self.signal_monitor.estimated_snr_db
         stage_started = time.perf_counter()
         channel_filtered, self.channel_filter_state = signal.lfilter(
             self.channel_taps,
@@ -646,15 +733,20 @@ class LiveTetraDemodulator:
             self.carrier = CarrierPLL(WORK_RATE, estimate)
             filtered = block
         stage_started = time.perf_counter()
-        corrected = self.carrier.process(filtered)
+        corrected = self.carrier.process(filtered, locked=self.framer.locked)
         self.stats.carrier_seconds += time.perf_counter() - stage_started
         stage_started = time.perf_counter()
-        symbols = self.timing.process(corrected)
+        symbols = self.timing.process(corrected, locked=self.framer.locked)
         self.stats.timing_seconds += time.perf_counter() - stage_started
         self.stats.symbols += len(symbols)
         values, distances, self.previous_symbol = quadrants(
             symbols, self.previous_symbol, return_distances=True
         )
+        if len(values):
+            nearest = distances[np.arange(len(values)), values]
+            self.stats.phase_error_rms_degrees = float(
+                np.degrees(np.sqrt(np.mean(nearest * nearest)))
+            )
         stage_started = time.perf_counter()
         bursts, gap = self.framer.feed(values, distances)
         self.stats.framing_seconds += time.perf_counter() - stage_started

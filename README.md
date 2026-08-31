@@ -112,7 +112,7 @@ adjacent 25 kHz TETRA channel.
 
 Burst lock uses short-fade hysteresis. A structurally invalid burst is dropped
 and reported as a downstream gap without synthesizing any replacement bits.
-Carrier, timing, and quadrant mapping remain locked unless six consecutive
+Carrier, timing, and quadrant mapping remain locked unless twelve consecutive
 bursts are invalid. Sustained damage triggers full burst reacquisition.
 
 During direct live delivery, π/4-DQPSK symbol distances are retained as signed
@@ -130,6 +130,14 @@ Software amplitude gain is unnecessary: carrier estimation, timing recovery,
 and differential decisions already normalize amplitude. Multiplying samples
 would amplify noise by the same factor and cannot improve SNR. RF gain remains
 the useful control for weak signals.
+
+Every 30 seconds, a `Signal quality` line reports the pre-normalization input
+level in dBFS, an adjacent-band SNR estimate, carrier coherence and residual
+frequency, RMS phase and timing errors, accepted-burst percentage, average
+training-sequence errors, and current lock state. These are relative receiver
+diagnostics rather than calibrated dBm measurements. Compare readings with the
+same receiver gain and SpyServer IQ format. The SNR estimate can be distorted
+when another transmission occupies either adjacent noise-reference band.
 
 Explicit center and gain:
 

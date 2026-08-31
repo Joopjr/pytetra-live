@@ -2,6 +2,12 @@
 
 ## 1.0.0
 
+- added adaptive carrier and Gardner timing loop bandwidths which acquire
+  quickly, track gradual drift, and resist weak-signal noise after burst lock;
+- rejected isolated large carrier-estimator jumps while locked to prevent
+  frequency thrashing during fades;
+- added periodic input-level, adjacent-band SNR, carrier, phase, timing,
+  training-error, burst-success, and lock-state telemetry;
 - made multiprocessing bridge tests self-contained so the standalone
   PyTetra-live CI matrix does not require an uninstalled sibling PyTetra tree;
 - added pre-resample TETRA channel filtering, slow RMS normalization, and
