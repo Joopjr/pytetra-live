@@ -3,6 +3,7 @@
 import logging
 import multiprocessing
 import queue
+import signal
 import threading
 import time
 import traceback
@@ -88,12 +89,30 @@ class PyTetraBridge:
             self.stack.phy.feed(burst)
 
 
-def _decoder_process(events, output, errors, debug):
+def _event_burst_count(event):
+    kind, payload = event
+    if kind == "burst":
+        return 1
+    if kind == "burst_batch":
+        return int(payload[2])
+    return 0
+
+
+def _change_counter(counter, delta):
+    with counter.get_lock():
+        counter.value = max(0, counter.value + int(delta))
+
+
+def _decoder_process(events, output, errors, queued_bursts, debug):
     """Run stateful PyTetra decoding outside the DSP interpreter process."""
     try:
+        # The parent owns terminal signals and requests an ordered shutdown.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         bridge = PyTetraBridge(debug=debug, line_writer=output.put)
         while True:
-            kind, payload = events.get()
+            event = events.get()
+            _change_counter(queued_bursts, -_event_burst_count(event))
+            kind, payload = event
             if kind == "stop":
                 return
             if kind == "reset":
@@ -141,11 +160,13 @@ class QueuedPyTetraBridge:
         self.output = context.Queue()
         self.errors = context.Queue(maxsize=1)
         self.overruns = 0
+        self.dropped_bursts = 0
+        self.queued_bursts = context.Value("q", 0)
         self._last_warning = 0.0
         self._reset_pending = False
         self.worker = context.Process(
             target=_worker_target or _decoder_process,
-            args=(self.events, self.output, self.errors, bool(debug)),
+            args=(self.events, self.output, self.errors, self.queued_bursts, bool(debug)),
             name="pytetra-decoder",
             daemon=True,
         )
@@ -163,6 +184,11 @@ class QueuedPyTetraBridge:
             return self.events.qsize()
         except (NotImplementedError, OSError):
             return 0
+
+    @property
+    def queue_bursts(self):
+        with self.queued_bursts.get_lock():
+            return int(self.queued_bursts.value)
 
     def _forward_output(self):
         while True:
@@ -189,11 +215,13 @@ class QueuedPyTetraBridge:
             )
 
     def _discard_pending(self):
+        discarded = 0
         while True:
             try:
-                self.events.get_nowait()
+                discarded += _event_burst_count(self.events.get_nowait())
             except queue.Empty:
-                return
+                _change_counter(self.queued_bursts, -discarded)
+                return discarded
 
     def _put(self, event):
         self._raise_worker_error()
@@ -204,11 +232,15 @@ class QueuedPyTetraBridge:
                 self._record_overrun()
                 return
             self._reset_pending = False
+        burst_count = _event_burst_count(event)
+        # Increment before publishing the event: the worker may consume it
+        # immediately on another CPU.
+        _change_counter(self.queued_bursts, burst_count)
         try:
             self.events.put_nowait(event)
         except queue.Full:
-            self._record_overrun()
-            self._discard_pending()
+            _change_counter(self.queued_bursts, -burst_count)
+            discarded = self._discard_pending()
             try:
                 self.events.put_nowait(("reset", None))
             except queue.Full:
@@ -216,21 +248,28 @@ class QueuedPyTetraBridge:
                 # makes discarded items visible. Defer reset and drop this
                 # event; overload must never terminate the IQ receiver.
                 self._reset_pending = True
+                self._record_overrun(discarded + burst_count)
                 return
             if event[0] != "reset":
+                _change_counter(self.queued_bursts, burst_count)
                 try:
                     self.events.put_nowait(event)
                 except queue.Full:
+                    _change_counter(self.queued_bursts, -burst_count)
                     # The reset is already ordered. Dropping this burst is
                     # safe and prevents a second queue.Full from escaping.
+                    self._record_overrun(discarded + burst_count)
                     return
+            self._record_overrun(discarded)
 
-    def _record_overrun(self):
+    def _record_overrun(self, dropped_bursts=0):
         self.overruns += 1
+        self.dropped_bursts += int(dropped_bursts)
         now = time.monotonic()
         if now - self._last_warning >= 1.0:
             LOG.warning(
-                "PyTetra decoder queue overrun: stale bursts discarded"
+                "PyTetra decoder queue overrun: %d bursts discarded in total",
+                self.dropped_bursts,
             )
             self._last_warning = now
 
@@ -272,8 +311,11 @@ class QueuedPyTetraBridge:
 
     def close(self):
         if self.worker.is_alive():
+            # FIFO ordering guarantees that every accepted burst is decoded
+            # before stop. The optimized PyTetra worker drains this bounded
+            # queue without Ctrl-C reaching the child mid-Viterbi operation.
             self.events.put(("stop", None))
-            self.worker.join(timeout=10.0)
+            self.worker.join(timeout=30.0)
         if self.worker.is_alive():
             self.worker.terminate()
             self.worker.join(timeout=2.0)

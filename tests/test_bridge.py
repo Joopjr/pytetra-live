@@ -15,11 +15,16 @@ from pytetra_live.bridge import (
 )
 
 
-def recording_decoder_process(events, output, errors, debug):
+def recording_decoder_process(events, output, errors, queued_bursts, debug):
     """Picklable CI worker that verifies ordering and serialized payloads."""
     received = []
     while True:
-        kind, payload = events.get()
+        event = events.get()
+        kind, payload = event
+        if kind == "burst":
+            queued_bursts.value = max(0, queued_bursts.value - 1)
+        elif kind == "burst_batch":
+            queued_bursts.value = max(0, queued_bursts.value - int(payload[2]))
         if kind == "stop":
             output.put("events=%s" % received)
             output.put(None)
@@ -96,6 +101,11 @@ class QueuedBridgeTestCase(unittest.TestCase):
         bridge.events = queue.Queue(maxsize=1)
         bridge.events.put_nowait(("burst", None))
         bridge.overruns = 0
+        bridge.dropped_bursts = 0
+        bridge.queued_bursts = type("Counter", (), {
+            "value": 1,
+            "get_lock": lambda self: __import__("contextlib").nullcontext(),
+        })()
         bridge._last_warning = 0.0
         bridge._reset_pending = False
 
@@ -105,6 +115,7 @@ class QueuedBridgeTestCase(unittest.TestCase):
             bridge._put(("burst", (b"bits", None)))
 
         self.assertEqual(bridge.overruns, 1)
+        self.assertEqual(bridge.dropped_bursts, 2)
         self.assertEqual(bridge.events.get_nowait(), ("reset", None))
 
     def test_decoder_process_accepts_ordered_copied_events(self):
@@ -126,6 +137,7 @@ class QueuedBridgeTestCase(unittest.TestCase):
         self.assertIn("('reset', None, None)", output)
         self.assertEqual(bridge.worker.exitcode, 0)
         self.assertEqual(bridge.overruns, 0)
+        self.assertEqual(bridge.queue_bursts, 0)
 
     def test_burst_batch_uses_one_ordered_queue_event(self):
         with patch("pytetra_live.bridge.LOG.info") as info:
@@ -140,6 +152,7 @@ class QueuedBridgeTestCase(unittest.TestCase):
 
         output = "\n".join(str(call) for call in info.call_args_list)
         self.assertIn("('burst_batch', 1530, 6120, 3)", output)
+        self.assertEqual(bridge.queue_bursts, 0)
 
 
 if __name__ == "__main__":

@@ -123,7 +123,8 @@ compatible `.bits` output intentionally remains hard-decision data.
 
 PyTetra decoding runs in a separate ordered worker queue so convolutional and
 protocol decoding cannot stall IQ reception. Every 30 seconds the normal log
-reports the DSP real-time factor, queue depths, decoder overruns, and the time
+reports the DSP real-time factor, IQ depth, queued decoder batches and bursts,
+decoder overruns, discarded bursts, and the time
 share of the resampler, filter, carrier, timing, and framing stages.
 
 Bursts produced by one DSP block are transferred to the decoder as one ordered

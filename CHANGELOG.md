@@ -2,6 +2,10 @@
 
 ## 1.0.0
 
+- made the decoder child ignore terminal interrupts so Ctrl-C is handled by
+  the parent as a normal ordered shutdown instead of a decoder failure;
+- added separate queued-batch, queued-burst, and discarded-burst telemetry,
+  including exact cumulative burst loss during overload recovery;
 - made decoder-queue overload recovery non-throwing and removed duplicate
   Python scalar conversions from the live PyTetra bridge;
 - batched ordered bursts and soft metrics into one multiprocessing event per
