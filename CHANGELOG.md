@@ -13,6 +13,8 @@
   dependent filter, timing, differential, and burst-alignment state;
 - vectorized synchronization-sequence acquisition and batched queued IQ blocks
   to remove repeated Python scanning and per-message DSP overhead;
+- ensured each SpyServer gap triggers only one full reacquisition, increased
+  short-load-spike buffering, and made burst-lock release less aggressive;
 
 - added a minimal reconnectable SpyServer protocol client;
 - added required host, port, and TETRA channel-frequency arguments;

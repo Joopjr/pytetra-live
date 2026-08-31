@@ -98,6 +98,22 @@ class DspTestCase(unittest.TestCase):
         self.assertFalse(framer.locked)
         self.assertIsNone(framer.mapping)
 
+    def test_default_framer_survives_five_damaged_bursts(self):
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:7 * 510].copy()
+        raw[510:6 * 510] = 0
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray(
+            [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
+            dtype=np.uint8,
+        )
+        framer = BurstFramer()
+
+        bursts, gap = framer.feed(values)
+
+        self.assertTrue(gap)
+        self.assertEqual(len(bursts), 2)
+        self.assertTrue(framer.locked)
+
     def test_live_pipeline_acquires_frequency_timing_and_bursts(self):
         path = self.fixture_path()
         raw_bits = np.fromfile(path, dtype=np.uint8)[:40 * 510]

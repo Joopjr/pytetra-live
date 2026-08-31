@@ -289,7 +289,7 @@ class BurstFramer:
 
     variants = ((False, False), (False, True), (True, False), (True, True))
 
-    def __init__(self, rejection_limit=3):
+    def __init__(self, rejection_limit=6):
         self.quadrant_buffer = np.empty(0, dtype=np.uint8)
         self.bits = np.empty(0, dtype=np.uint8)
         self.mapping = None

@@ -29,7 +29,7 @@ class ReceiverStats:
 class LiveReceiver:
     # Keep enough elasticity for short scheduler stalls without accumulating
     # seconds of latency when the decoder cannot sustain real-time operation.
-    IQ_QUEUE_BLOCKS = 64
+    IQ_QUEUE_BLOCKS = 128
 
     def __init__(
         self,
@@ -122,7 +122,6 @@ class LiveReceiver:
             reader_done = threading.Event()
             reader_error = []
             generation = [0]
-            full_reset_pending = [False]
             generation_lock = threading.Lock()
 
             def discard_queued_iq():
@@ -142,12 +141,9 @@ class LiveReceiver:
                             observed_gaps = client.sequence_gaps
                             with generation_lock:
                                 generation[0] += 1
-                                full_reset_pending[0] = True
                             discard_queued_iq()
                         with generation_lock:
-                            item = (
-                                generation[0], full_reset_pending[0], block
-                            )
+                            item = (generation[0], client.sequence_gaps, block)
                         try:
                             iq_queue.put_nowait(item)
                         except queue.Full:
@@ -157,9 +153,7 @@ class LiveReceiver:
                             with generation_lock:
                                 generation[0] += 1
                                 self.stats.queue_overruns += 1
-                                item = (
-                                    generation[0], full_reset_pending[0], block
-                                )
+                                item = (generation[0], client.sequence_gaps, block)
                             discard_queued_iq()
                             iq_queue.put_nowait(item)
                 except BaseException as exc:
@@ -174,12 +168,13 @@ class LiveReceiver:
             )
             reader.start()
             observed_generation = generation[0]
+            processed_server_gaps = 0
             while not self.stop_requested:
                 if duration is not None and time.monotonic() - started >= duration:
                     self.stop_requested = True
                     break
                 try:
-                    block_generation, full_reset, block = iq_queue.get(timeout=0.1)
+                    block_generation, server_gaps, block = iq_queue.get(timeout=0.1)
                 except queue.Empty:
                     if reader_done.is_set():
                         break
@@ -189,17 +184,17 @@ class LiveReceiver:
                 # generation makes all previously collected blocks stale.
                 while True:
                     try:
-                        next_generation, next_full_reset, next_block = (
+                        next_generation, next_server_gaps, next_block = (
                             iq_queue.get_nowait()
                         )
                     except queue.Empty:
                         break
                     if next_generation != block_generation:
                         block_generation = next_generation
-                        full_reset = next_full_reset
+                        server_gaps = next_server_gaps
                         blocks = [next_block]
                     else:
-                        full_reset = full_reset or next_full_reset
+                        server_gaps = max(server_gaps, next_server_gaps)
                         blocks.append(next_block)
                 if len(blocks) > 1:
                     block = np.concatenate(blocks)
@@ -210,7 +205,8 @@ class LiveReceiver:
                 if block_generation != observed_generation:
                     skipped_generations = block_generation - observed_generation
                     observed_generation = block_generation
-                    if full_reset:
+                    if server_gaps != processed_server_gaps:
+                        processed_server_gaps = server_gaps
                         demodulator = LiveTetraDemodulator(
                             configuration.sample_rate,
                             channel_offset=(
@@ -221,8 +217,6 @@ class LiveReceiver:
                         )
                         reset_description = "full DSP reacquisition"
                         reset_prefix = "SpyServer IQ discontinuity"
-                        with generation_lock:
-                            full_reset_pending[0] = False
                     else:
                         retained = demodulator.recover_stream()
                         reset_description = (
