@@ -98,12 +98,14 @@ def main(argv=None):
         logging.error("PyTetra-live stopped: %s", exc)
         return 1
     logging.info(
-        "Stopped: connections=%d reconnects=%d samples=%d bursts=%d sequence_gaps=%d",
+        "Stopped: connections=%d reconnects=%d samples=%d bursts=%d "
+        "sequence_gaps=%d queue_overruns=%d",
         stats.connections,
         stats.reconnects,
         stats.iq_samples,
         stats.bursts,
         stats.sequence_gaps,
+        stats.queue_overruns,
     )
     return 0
 

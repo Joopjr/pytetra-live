@@ -2,6 +2,13 @@
 
 ## 1.0.0
 
+- decoupled SpyServer socket reception from DSP processing with a bounded
+  real-time IQ queue;
+- coalesced clustered SpyServer loss into controlled DSP discontinuities and
+  rate-limited repeated gap warnings;
+- added a queue-overrun statistic to distinguish local DSP backpressure from
+  network or SpyServer packet loss;
+
 - added a minimal reconnectable SpyServer protocol client;
 - added required host, port, and TETRA channel-frequency arguments;
 - added per-client SpyServer IQ centering without moving the shared hardware

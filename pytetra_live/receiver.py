@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 import logging
+import queue
+import threading
 import time
 
 from .bridge import BitFileSink, IqFileSink, PyTetraBridge
@@ -19,9 +21,14 @@ class ReceiverStats:
     iq_samples: int = 0
     bursts: int = 0
     sequence_gaps: int = 0
+    queue_overruns: int = 0
 
 
 class LiveReceiver:
+    # Keep enough elasticity for short scheduler stalls without accumulating
+    # seconds of latency when the decoder cannot sustain real-time operation.
+    IQ_QUEUE_BLOCKS = 64
+
     def __init__(
         self,
         host,
@@ -109,17 +116,68 @@ class LiveReceiver:
                 nominal_frequency=configuration.frequency,
             )
             client.start()
-            observed_sequence_gaps = client.sequence_gaps
-            for block in client.iq_blocks():
-                if self.stop_requested:
-                    break
+            iq_queue = queue.Queue(maxsize=self.IQ_QUEUE_BLOCKS)
+            reader_done = threading.Event()
+            reader_error = []
+            generation = [0]
+
+            def discard_queued_iq():
+                while True:
+                    try:
+                        iq_queue.get_nowait()
+                    except queue.Empty:
+                        return
+
+            def receive_iq():
+                observed_gaps = client.sequence_gaps
+                try:
+                    for block in client.iq_blocks():
+                        if self.stop_requested:
+                            break
+                        if client.sequence_gaps != observed_gaps:
+                            observed_gaps = client.sequence_gaps
+                            generation[0] += 1
+                            discard_queued_iq()
+                        item = (generation[0], block)
+                        try:
+                            iq_queue.put_nowait(item)
+                        except queue.Full:
+                            # DSP is behind. Preserve real-time operation by
+                            # dropping stale IQ and starting one new stream
+                            # generation instead of blocking socket reception.
+                            generation[0] += 1
+                            self.stats.queue_overruns += 1
+                            discard_queued_iq()
+                            iq_queue.put_nowait((generation[0], block))
+                except BaseException as exc:
+                    reader_error.append(exc)
+                finally:
+                    reader_done.set()
+
+            reader = threading.Thread(
+                target=receive_iq,
+                name="spyserver-iq-reader",
+                daemon=True,
+            )
+            reader.start()
+            observed_generation = generation[0]
+            while not self.stop_requested:
                 if duration is not None and time.monotonic() - started >= duration:
                     self.stop_requested = True
                     break
+                try:
+                    block_generation, block = iq_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if reader_done.is_set():
+                        break
+                    continue
+                if self.stop_requested:
+                    break
                 self.iq.write(block)
                 self.stats.iq_samples += len(block)
-                if client.sequence_gaps != observed_sequence_gaps:
-                    observed_sequence_gaps = client.sequence_gaps
+                if block_generation != observed_generation:
+                    skipped_generations = block_generation - observed_generation
+                    observed_generation = block_generation
                     demodulator = LiveTetraDemodulator(
                         configuration.sample_rate,
                         channel_offset=(
@@ -131,7 +189,12 @@ class LiveReceiver:
                     if self.bridge is not None:
                         self.bridge.reset()
                     LOG.warning(
-                        "DSP state reset after a SpyServer sequence gap"
+                        "DSP state reset after an IQ discontinuity"
+                        + (
+                            " (%d discontinuities coalesced)" % skipped_generations
+                            if skipped_generations > 1
+                            else ""
+                        )
                     )
                 bursts, gap = demodulator.process(block)
                 if gap and self.bridge is not None:
@@ -147,6 +210,8 @@ class LiveReceiver:
                         )
                         self.bridge.feed_burst(burst, confidence)
                     self.stats.bursts += 1
+            if reader_error:
+                raise reader_error[0]
             self.stats.sequence_gaps += client.sequence_gaps
         finally:
             try:

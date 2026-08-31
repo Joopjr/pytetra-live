@@ -39,6 +39,8 @@ class SpyServerClient:
         self.client_sync = None
         self.last_sequence = {}
         self.sequence_gaps = 0
+        self._last_gap_warning = 0.0
+        self._suppressed_gap_warnings = 0
 
     def connect(self):
         self.close()
@@ -94,12 +96,25 @@ class SpyServerClient:
                 and header.sequence_number != ((previous + 1) & 0xFFFFFFFF)
             ):
                 self.sequence_gaps += 1
-                LOG.warning(
-                    "SpyServer sequence gap: stream=%d expected=%d received=%d",
-                    header.stream_type,
-                    (previous + 1) & 0xFFFFFFFF,
-                    header.sequence_number,
-                )
+                now = time.monotonic()
+                if now - self._last_gap_warning >= 0.5:
+                    suffix = ""
+                    if self._suppressed_gap_warnings:
+                        suffix = " (%d additional gaps coalesced)" % (
+                            self._suppressed_gap_warnings,
+                        )
+                    LOG.warning(
+                        "SpyServer sequence gap: stream=%d expected=%d "
+                        "received=%d%s",
+                        header.stream_type,
+                        (previous + 1) & 0xFFFFFFFF,
+                        header.sequence_number,
+                        suffix,
+                    )
+                    self._last_gap_warning = now
+                    self._suppressed_gap_warnings = 0
+                else:
+                    self._suppressed_gap_warnings += 1
             self.last_sequence[header.stream_type] = header.sequence_number
         return header, body
 
