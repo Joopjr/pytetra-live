@@ -17,5 +17,10 @@
 - added training-sequence burst framing without fabricated replacement bits;
 - preserved carrier, timing, and mapping lock across isolated damaged bursts,
   with full reacquisition after three consecutive structural failures;
+- added live soft-bit confidence and soft-decision Viterbi correction while
+  retaining CRC-gated delivery and hard-bit file compatibility;
+- removed an expensive repeated in-buffer alignment scan that could starve
+  SpyServer reception during sustained weak-signal damage;
 - added direct PyTetra delivery plus optional IQ and bit recording;
 - added simulated-server, DSP, CLI, and public-example regression tests.
+- licensed PyTetra-live under GNU General Public License v3.0 only.

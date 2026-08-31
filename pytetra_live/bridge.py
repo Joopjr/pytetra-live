@@ -32,11 +32,19 @@ class PyTetraBridge:
 
     def reset(self):
         self.resets += 1
-        self._create_stack()
+        reset_after_gap = getattr(self.stack, "reset_after_gap", None)
+        if reset_after_gap is not None:
+            reset_after_gap()
+        else:
+            self._create_stack()
         LOG.info("PyTetra stream state reset after a demodulator gap")
 
-    def feed_burst(self, burst):
-        self.stack.phy.feed([int(bit) for bit in burst])
+    def feed_burst(self, burst, confidence=None):
+        bits = [int(bit) for bit in burst]
+        if confidence is not None and hasattr(self.stack.phy, "feed_soft"):
+            self.stack.phy.feed_soft(bits, [float(value) for value in confidence])
+        else:
+            self.stack.phy.feed(bits)
 
 
 class BitFileSink:

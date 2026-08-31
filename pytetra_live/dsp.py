@@ -212,16 +212,22 @@ class StreamingGardner:
         return np.asarray(output, dtype=np.complex64)
 
 
-def quadrants(symbols, previous_symbol=None):
+def quadrants(symbols, previous_symbol=None, return_distances=False):
     if previous_symbol is not None:
         symbols = np.concatenate(([previous_symbol], symbols))
     if len(symbols) < 2:
-        return np.empty(0, dtype=np.uint8), previous_symbol
+        empty = np.empty(0, dtype=np.uint8)
+        if return_distances:
+            return empty, np.empty((0, 4), dtype=np.float32), previous_symbol
+        return empty, previous_symbol
     normalized = symbols / np.maximum(np.abs(symbols), 1e-12)
     phase = np.angle(normalized[1:] * np.conj(normalized[:-1]))
     ideal = np.asarray([np.pi / 4, 3 * np.pi / 4, -3 * np.pi / 4, -np.pi / 4])
     distance = np.abs(np.angle(np.exp(1j * (phase[:, None] - ideal[None, :]))))
-    return np.argmin(distance, axis=1).astype(np.uint8), symbols[-1]
+    values = np.argmin(distance, axis=1).astype(np.uint8)
+    if return_distances:
+        return values, distance.astype(np.float32), symbols[-1]
+    return values, symbols[-1]
 
 
 def map_quadrants(values, inverse=False, bit_invert=False):
@@ -232,6 +238,36 @@ def map_quadrants(values, inverse=False, bit_invert=False):
     if bit_invert:
         bits = 1 - bits
     return bits
+
+
+def map_soft_quadrants(values, distances, inverse=False, bit_invert=False):
+    """Return hard dibits and signed confidence from symbol distances.
+
+    Positive confidence favours bit one, negative confidence favours zero.
+    Magnitude expresses separation between the best competing hypotheses.
+    """
+    values = np.asarray(values, dtype=np.uint8)
+    distances = np.asarray(distances, dtype=np.float32)
+    bits = map_quadrants(values, inverse, bit_invert)
+    if distances.shape != (len(values), 4):
+        return bits, np.where(bits, 1.0, -1.0).astype(np.float32)
+
+    labels = np.asarray([[0, 0], [0, 1], [1, 1], [1, 0]], dtype=np.uint8)
+    transformed = np.empty_like(labels)
+    for original in range(4):
+        mapped = (-original) % 4 if inverse else original
+        transformed[original] = labels[mapped]
+    if bit_invert:
+        transformed = 1 - transformed
+
+    confidence = np.empty((len(values), 2), dtype=np.float32)
+    for bit_index in range(2):
+        zero = np.min(distances[:, transformed[:, bit_index] == 0], axis=1)
+        one = np.min(distances[:, transformed[:, bit_index] == 1], axis=1)
+        confidence[:, bit_index] = zero - one
+    scale = np.maximum(np.max(np.abs(confidence), axis=1, keepdims=True), 1e-6)
+    confidence = np.clip(confidence / scale, -1.0, 1.0)
+    return bits, confidence.reshape(-1)
 
 
 def burst_quality(bits):
@@ -261,6 +297,9 @@ class BurstFramer:
         self.rejected = 0
         self.consecutive_rejections = 0
         self.rejection_limit = max(1, int(rejection_limit))
+        self.distance_buffer = np.empty((0, 4), dtype=np.float32)
+        self.soft_bits = np.empty(0, dtype=np.float32)
+        self.last_confidences = []
 
     @staticmethod
     def _find_sync(bits):
@@ -272,19 +311,32 @@ class BurstFramer:
                 return start
         return None
 
-    def feed(self, values):
+    def feed(self, values, distances=None):
         values = np.asarray(values, dtype=np.uint8)
+        if distances is None:
+            distances = np.zeros((len(values), 4), dtype=np.float32)
+            distances[np.arange(len(values)), values] = -1.0
+        distances = np.asarray(distances, dtype=np.float32)
         bursts = []
+        self.last_confidences = []
         gap = False
         if self.mapping is None:
             self.quadrant_buffer = np.concatenate((self.quadrant_buffer, values))
+            self.distance_buffer = np.concatenate((self.distance_buffer, distances))
             for inverse, invert in self.variants:
-                candidate = map_quadrants(self.quadrant_buffer, inverse, invert)
+                candidate, soft_candidate = map_soft_quadrants(
+                    self.quadrant_buffer,
+                    self.distance_buffer,
+                    inverse,
+                    invert,
+                )
                 start = self._find_sync(candidate)
                 if start is not None:
                     self.mapping = (inverse, invert)
                     self.bits = candidate[start:]
+                    self.soft_bits = soft_candidate[start:]
                     self.quadrant_buffer = np.empty(0, dtype=np.uint8)
+                    self.distance_buffer = np.empty((0, 4), dtype=np.float32)
                     self.locked = True
                     self.consecutive_rejections = 0
                     LOG.info(
@@ -297,9 +349,14 @@ class BurstFramer:
                 max_quadrants = 24 * 255
                 if len(self.quadrant_buffer) > max_quadrants:
                     self.quadrant_buffer = self.quadrant_buffer[-max_quadrants:]
+                    self.distance_buffer = self.distance_buffer[-max_quadrants:]
                 return bursts, gap
         else:
-            self.bits = np.concatenate((self.bits, map_quadrants(values, *self.mapping)))
+            mapped, soft_mapped = map_soft_quadrants(
+                values, distances, *self.mapping
+            )
+            self.bits = np.concatenate((self.bits, mapped))
+            self.soft_bits = np.concatenate((self.soft_bits, soft_mapped))
 
         while len(self.bits) >= BURST_BITS:
             burst = self.bits[:BURST_BITS]
@@ -312,26 +369,16 @@ class BurstFramer:
                 # burst, notify downstream stateful decoders of the gap, and
                 # preserve carrier/timing/mapping lock through short fades.
                 self.bits = self.bits[BURST_BITS:]
+                self.soft_bits = self.soft_bits[BURST_BITS:]
                 if self.consecutive_rejections < self.rejection_limit:
-                    continue
-
-                # A sustained failure is more likely to be a symbol slip than
-                # a single noisy burst. First try to realign a synchronization
-                # burst already buffered under the known quadrant mapping.
-                start = self._find_sync(self.bits)
-                if start is not None:
-                    self.bits = self.bits[start:]
-                    self.consecutive_rejections = 0
-                    LOG.info(
-                        "TETRA burst alignment recovered after %d rejected bursts",
-                        self.rejection_limit,
-                    )
                     continue
 
                 self.mapping = None
                 self.locked = False
                 self.quadrant_buffer = np.empty(0, dtype=np.uint8)
+                self.distance_buffer = np.empty((0, 4), dtype=np.float32)
                 self.bits = np.empty(0, dtype=np.uint8)
+                self.soft_bits = np.empty(0, dtype=np.float32)
                 self.consecutive_rejections = 0
                 LOG.info(
                     "TETRA burst lock released after %d consecutive rejected bursts",
@@ -339,8 +386,10 @@ class BurstFramer:
                 )
                 break
             bursts.append(burst.copy())
+            self.last_confidences.append(self.soft_bits[:BURST_BITS].copy())
             self.consecutive_rejections = 0
             self.bits = self.bits[BURST_BITS:]
+            self.soft_bits = self.soft_bits[BURST_BITS:]
         return bursts, gap
 
 
@@ -373,6 +422,7 @@ class LiveTetraDemodulator:
         self.previous_symbol = None
         self.framer = BurstFramer()
         self.stats = DemodulatorStats()
+        self.last_confidences = []
 
     def reset(self):
         self.__init__(
@@ -414,8 +464,11 @@ class LiveTetraDemodulator:
         corrected = self.carrier.process(filtered)
         symbols = self.timing.process(corrected)
         self.stats.symbols += len(symbols)
-        values, self.previous_symbol = quadrants(symbols, self.previous_symbol)
-        bursts, gap = self.framer.feed(values)
+        values, distances, self.previous_symbol = quadrants(
+            symbols, self.previous_symbol, return_distances=True
+        )
+        bursts, gap = self.framer.feed(values, distances)
+        self.last_confidences = self.framer.last_confidences
         self.stats.bursts += len(bursts)
         if gap:
             self.stats.lock_losses += 1

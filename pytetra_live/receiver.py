@@ -136,10 +136,16 @@ class LiveReceiver:
                 bursts, gap = demodulator.process(block)
                 if gap and self.bridge is not None:
                     self.bridge.reset()
-                for burst in bursts:
+                confidences = demodulator.last_confidences
+                for burst_index, burst in enumerate(bursts):
                     self.bits.write(burst)
                     if self.bridge is not None:
-                        self.bridge.feed_burst(burst)
+                        confidence = (
+                            confidences[burst_index]
+                            if burst_index < len(confidences)
+                            else None
+                        )
+                        self.bridge.feed_burst(burst, confidence)
                     self.stats.bursts += 1
             self.stats.sequence_gaps += client.sequence_gaps
         finally:

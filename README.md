@@ -97,6 +97,17 @@ and reported as a downstream gap without synthesizing any replacement bits.
 Carrier, timing, and quadrant mapping remain locked unless three consecutive
 bursts are invalid. Sustained damage triggers full burst reacquisition.
 
+During direct live delivery, π/4-DQPSK symbol distances are retained as signed
+bit confidence. A soft-decision Viterbi decoder uses that confidence after
+unscrambling and deinterleaving. Corrected control blocks are delivered only
+when their normal TETRA CRC succeeds; failed blocks remain discarded. The
+compatible `.bits` output intentionally remains hard-decision data.
+
+Software amplitude gain is unnecessary: carrier estimation, timing recovery,
+and differential decisions already normalize amplitude. Multiplying samples
+would amplify noise by the same factor and cannot improve SNR. RF gain remains
+the useful control for weak signals.
+
 Explicit center and gain:
 
 ```bash

@@ -10,6 +10,7 @@ from pytetra_live.dsp import (
     StreamingResampler,
     WORK_RATE,
     burst_quality,
+    map_soft_quadrants,
     rrc_taps,
 )
 
@@ -27,6 +28,16 @@ class DspTestCase(unittest.TestCase):
             [split_resampler.process(source[:333]), split_resampler.process(source[333:])]
         )
         np.testing.assert_allclose(split, one, atol=1e-5)
+
+    def test_soft_confidence_polarity_matches_all_hard_mappings(self):
+        values = np.asarray([0, 1, 2, 3], dtype=np.uint8)
+        distances = np.full((4, 4), 2.0, dtype=np.float32)
+        distances[np.arange(4), values] = 0.0
+        for inverse, invert in BurstFramer.variants:
+            bits, confidence = map_soft_quadrants(
+                values, distances, inverse, invert
+            )
+            np.testing.assert_array_equal(confidence > 0.0, bits == 1)
 
     def test_public_example_contains_200_valid_bursts(self):
         path = self.fixture_path()
