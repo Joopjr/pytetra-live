@@ -4,6 +4,9 @@ PyTetra-live is a minimal SpyServer IQ client, stateful TETRA π/4-DQPSK
 demodulator, and live input bridge for PyTetra. It implements only the client
 protocol needed to receive IQ. It does not implement or replace SpyServer.
 
+Every live output line uses the same local timestamped logging format,
+including compact PyTetra summaries and full `--debug` layer diagnostics.
+
 The protocol-decoder project remains separate:
 
 - PyTetra-live: SpyServer IQ → validated 510-bit downlink bursts

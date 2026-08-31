@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from pytetra_live.bridge import QueuedPyTetraBridge
+from pytetra_live.bridge import PyTetraBridge, QueuedPyTetraBridge
 
 
 class RecordingBridge:
@@ -23,6 +23,16 @@ class RecordingBridge:
 
 
 class QueuedBridgeTestCase(unittest.TestCase):
+    def test_pytetra_lines_are_routed_through_timestamped_logging(self):
+        from pytetra.logger import Logger
+
+        with patch("pytetra_live.bridge.LOG.info") as info:
+            PyTetraBridge()
+            Logger.log("DL; Layer 2 - MAC(MacResourcePdu)")
+        Logger.set_writer(None)
+
+        info.assert_called_with("%s", "DL; Layer 2 - MAC(MacResourcePdu)")
+
     def test_decoder_worker_preserves_event_order_and_copies_input(self):
         RecordingBridge.instances = []
         with patch("pytetra_live.bridge.PyTetraBridge", RecordingBridge):

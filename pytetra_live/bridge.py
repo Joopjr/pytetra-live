@@ -25,12 +25,17 @@ class PyTetraBridge:
     def _create_stack(self):
         try:
             from pytetra.cli import ConsoleUserLayer
+            from pytetra.logger import Logger
             from pytetra.stack import TetraStack
         except ImportError as exc:
             raise PyTetraUnavailable(
                 "PyTetra is not importable. Install the sibling pytetra project "
                 "or run PyTetra-live with --no-decode."
             ) from exc
+        # Route every PyTetra line through this application's logging format.
+        # This covers compact summaries, layer headings and debug diagnostics
+        # and gives them the same live timestamp as receiver/DSP messages.
+        Logger.set_writer(lambda message: LOG.info("%s", message))
         self.stack = TetraStack(ConsoleUserLayer, debug=self.debug)
 
     def reset(self):

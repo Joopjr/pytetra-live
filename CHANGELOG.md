@@ -2,6 +2,9 @@
 
 ## 1.0.0
 
+- routed compact and diagnostic PyTetra output through the live logger so every
+  emitted line carries the same timestamp and severity prefix;
+
 - decoupled SpyServer socket reception from DSP processing with a bounded
   real-time IQ queue;
 - coalesced clustered SpyServer loss into controlled DSP discontinuities and
