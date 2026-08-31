@@ -24,7 +24,7 @@ burst lock is lost, incomplete data is discarded and PyTetra protocol state is
 reset before delivery resumes at a newly validated burst.
 
 Weak-signal reception uses a selective 25 kHz channel filter, slow RMS level
-normalization, coherence-gated carrier tracking, and two-burst structural lock
+normalization, coherence-gated carrier tracking, and three-burst structural lock
 confirmation. A rejected burst is still discarded rather than reconstructed.
 
 ## Requirements
@@ -112,7 +112,7 @@ adjacent 25 kHz TETRA channel.
 
 Burst lock uses short-fade hysteresis. A structurally invalid burst is dropped
 and reported as a downstream gap without synthesizing any replacement bits.
-Carrier, timing, and quadrant mapping remain locked unless twelve consecutive
+Carrier, timing, and quadrant mapping remain locked unless twenty-four consecutive
 bursts are invalid. Sustained damage triggers full burst reacquisition.
 
 During direct live delivery, π/4-DQPSK symbol distances are retained as signed
@@ -133,7 +133,8 @@ the useful control for weak signals.
 
 Every 30 seconds, a `Signal quality` line reports the pre-normalization input
 level in dBFS, an adjacent-band SNR estimate, carrier coherence and residual
-frequency, RMS phase and timing errors, accepted-burst percentage, average
+frequency, RMS phase and timing errors, recovered samples per symbol, timing
+drift in ppm, interval burst-success percentage, average interval
 training-sequence errors, and current lock state. These are relative receiver
 diagnostics rather than calibrated dBm measurements. Compare readings with the
 same receiver gain and SpyServer IQ format. The SNR estimate can be distorted

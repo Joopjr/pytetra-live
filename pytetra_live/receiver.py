@@ -180,6 +180,10 @@ class LiveReceiver:
             observed_generation = generation[0]
             processed_discontinuities = 0
             next_performance_log = time.monotonic() + 30.0
+            previous_accepted = 0
+            previous_rejected = 0
+            previous_training_errors = 0
+            metrics_framer = demodulator.framer
             while not self.stop_requested:
                 if duration is not None and time.monotonic() - started >= duration:
                     self.stop_requested = True
@@ -272,6 +276,11 @@ class LiveReceiver:
                 now = time.monotonic()
                 if now >= next_performance_log:
                     dsp = demodulator.stats
+                    if demodulator.framer is not metrics_framer:
+                        metrics_framer = demodulator.framer
+                        previous_accepted = 0
+                        previous_rejected = 0
+                        previous_training_errors = 0
                     input_seconds = dsp.input_samples / configuration.sample_rate
                     realtime = (
                         input_seconds / dsp.processing_seconds
@@ -296,19 +305,30 @@ class LiveReceiver:
                         100.0 * dsp.timing_seconds / total_stages,
                         100.0 * dsp.framing_seconds / total_stages,
                     )
-                    accepted = demodulator.framer.accepted
-                    rejected = demodulator.framer.rejected
+                    accepted_total = demodulator.framer.accepted
+                    rejected_total = demodulator.framer.rejected
+                    training_total = demodulator.framer.training_error_sum
+                    accepted = max(0, accepted_total - previous_accepted)
+                    rejected = max(0, rejected_total - previous_rejected)
+                    training_delta = max(0, training_total - previous_training_errors)
+                    previous_accepted = accepted_total
+                    previous_rejected = rejected_total
+                    previous_training_errors = training_total
                     examined = accepted + rejected
                     burst_success = 100.0 * accepted / examined if examined else 0.0
                     training_errors = (
-                        demodulator.framer.training_error_sum / accepted
+                        training_delta / accepted
                         if accepted else 0.0
                     )
                     carrier = demodulator.carrier
+                    timing_ppm = 1e6 * (
+                        demodulator.timing.omega / demodulator.timing.omega_nominal - 1.0
+                    )
                     LOG.info(
                         "Signal quality: input_level=%.1f dBFS estimated_snr=%.1f dB "
                         "carrier_coherence=%.3f frequency_error=%+.2f Hz "
                         "phase_error_rms=%.1f deg timing_error_rms=%.4f "
+                        "samples_per_symbol=%.6f timing_drift=%+.1f ppm "
                         "burst_success=%.1f%% training_errors=%.2f lock=%s",
                         dsp.input_level_dbfs,
                         dsp.estimated_snr_db,
@@ -316,6 +336,8 @@ class LiveReceiver:
                         carrier.frequency if carrier is not None else 0.0,
                         dsp.phase_error_rms_degrees,
                         demodulator.timing.error_rms,
+                        demodulator.timing.omega,
+                        timing_ppm,
                         burst_success,
                         training_errors,
                         demodulator.framer.locked,

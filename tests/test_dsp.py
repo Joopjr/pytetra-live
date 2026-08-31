@@ -47,6 +47,19 @@ class DspTestCase(unittest.TestCase):
         self.assertGreater(monitor.input_level_dbfs, -20.0)
         self.assertGreater(monitor.estimated_snr_db, 10.0)
 
+    def test_signal_monitor_accumulates_small_input_blocks(self):
+        sample_rate = 93750.0
+        positions = np.arange(int(sample_rate), dtype=np.float64)
+        samples = (0.2 * np.exp(
+            1j * 2.0 * np.pi * 4000.0 * positions / sample_rate
+        )).astype(np.complex64)
+        monitor = SignalQualityMonitor(sample_rate)
+
+        for start in range(0, len(samples), 1024):
+            monitor.update(samples[start:start + 1024])
+
+        self.assertTrue(np.isfinite(monitor.estimated_snr_db))
+
     def test_locked_carrier_loop_rejects_large_single_jump(self):
         pll = CarrierPLL(WORK_RATE, 250.0)
         # Force a deterministic estimator result without coupling this test to
@@ -55,7 +68,8 @@ class DspTestCase(unittest.TestCase):
         measurement = original.fourth_power_frequency_measurement
         try:
             original.fourth_power_frequency_measurement = lambda samples, rate: (900.0, 0.5)
-            pll.process(np.ones(4096, dtype=np.complex64), locked=True)
+            pll.process(np.ones(2048, dtype=np.complex64), locked=True)
+            pll.process(np.ones(6144, dtype=np.complex64), locked=True)
         finally:
             original.fourth_power_frequency_measurement = measurement
 
@@ -109,6 +123,14 @@ class DspTestCase(unittest.TestCase):
         self.assertFalse(gap)
         self.assertFalse(framer.locked)
 
+    def test_sync_candidates_must_start_on_a_dibit_boundary(self):
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:510]
+        odd_aligned = np.concatenate((np.asarray([0], dtype=np.uint8), raw))
+
+        candidates = BurstFramer._find_sync_candidates(odd_aligned)
+
+        self.assertNotIn(1, candidates)
+
     def test_channel_filter_rejects_out_of_channel_interference(self):
         demodulator = LiveTetraDemodulator(93750.0)
         frequencies, response = signal.freqz(
@@ -123,11 +145,29 @@ class DspTestCase(unittest.TestCase):
         self.assertLess(adjacent, 0.01)
 
     def test_framer_keeps_lock_across_one_damaged_burst(self):
-        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:4 * 510].copy()
-        # Confirm with two valid bursts, then damage one complete burst while
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:5 * 510].copy()
+        # Confirm with three valid bursts, then damage one complete burst while
         # leaving the following burst perfectly aligned.
         # validation, while leaving the following burst perfectly aligned.
-        raw[2 * 510:3 * 510] = 0
+        raw[3 * 510:4 * 510] = 0
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray(
+            [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
+            dtype=np.uint8,
+        )
+        framer = BurstFramer(rejection_limit=3)
+
+        bursts, gap = framer.feed(values)
+
+        self.assertTrue(gap)
+        self.assertEqual(len(bursts), 4)
+        self.assertTrue(framer.locked)
+        self.assertEqual(framer.rejected, 1)
+        self.assertEqual(framer.consecutive_rejections, 0)
+
+    def test_framer_releases_lock_after_sustained_damage(self):
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:6 * 510].copy()
+        raw[3 * 510:] = 0
         reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
         values = np.asarray(
             [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
@@ -139,30 +179,12 @@ class DspTestCase(unittest.TestCase):
 
         self.assertTrue(gap)
         self.assertEqual(len(bursts), 3)
-        self.assertTrue(framer.locked)
-        self.assertEqual(framer.rejected, 1)
-        self.assertEqual(framer.consecutive_rejections, 0)
-
-    def test_framer_releases_lock_after_sustained_damage(self):
-        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:5 * 510].copy()
-        raw[2 * 510:] = 0
-        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
-        values = np.asarray(
-            [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
-            dtype=np.uint8,
-        )
-        framer = BurstFramer(rejection_limit=3)
-
-        bursts, gap = framer.feed(values)
-
-        self.assertTrue(gap)
-        self.assertEqual(len(bursts), 2)
         self.assertFalse(framer.locked)
         self.assertIsNone(framer.mapping)
 
     def test_default_framer_survives_five_damaged_bursts(self):
-        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:8 * 510].copy()
-        raw[2 * 510:7 * 510] = 0
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:9 * 510].copy()
+        raw[3 * 510:8 * 510] = 0
         reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
         values = np.asarray(
             [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
@@ -173,7 +195,7 @@ class DspTestCase(unittest.TestCase):
         bursts, gap = framer.feed(values)
 
         self.assertTrue(gap)
-        self.assertEqual(len(bursts), 3)
+        self.assertEqual(len(bursts), 4)
         self.assertTrue(framer.locked)
 
     def test_live_pipeline_acquires_frequency_timing_and_bursts(self):

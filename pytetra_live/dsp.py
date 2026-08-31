@@ -179,6 +179,9 @@ class StreamingRmsNormalizer:
 
 
 class CarrierPLL:
+    MEASUREMENT_SIZE = 8192
+    MEASUREMENT_HOP = 4096
+
     def __init__(self, sample_rate, initial_frequency=0.0):
         self.sample_rate = float(sample_rate)
         self.frequency = float(initial_frequency)
@@ -186,11 +189,16 @@ class CarrierPLL:
         self.phase = 0.0
         self.coherence = 0.0
         self.last_measurement = float(initial_frequency)
+        self.measurement_buffer = np.empty(0, dtype=np.complex64)
 
     def process(self, samples, locked=False):
-        if len(samples) >= 4096:
+        samples = np.asarray(samples, dtype=np.complex64)
+        self.measurement_buffer = np.concatenate((self.measurement_buffer, samples))
+        while len(self.measurement_buffer) >= self.MEASUREMENT_SIZE:
+            measurement = self.measurement_buffer[:self.MEASUREMENT_SIZE]
+            self.measurement_buffer = self.measurement_buffer[self.MEASUREMENT_HOP:]
             estimate, coherence = fourth_power_frequency_measurement(
-                samples, self.sample_rate
+                measurement, self.sample_rate
             )
             self.coherence += 0.10 * (coherence - self.coherence)
             self.last_measurement = float(estimate)
@@ -401,7 +409,7 @@ class BurstFramer:
 
     variants = ((False, False), (False, True), (True, False), (True, True))
 
-    def __init__(self, rejection_limit=12, acquisition_confidence=0.20):
+    def __init__(self, rejection_limit=24, acquisition_confidence=0.20):
         self.quadrant_buffer = np.empty(0, dtype=np.uint8)
         self.bits = np.empty(0, dtype=np.uint8)
         self.mapping = None
@@ -420,7 +428,9 @@ class BurstFramer:
     def _find_sync_candidates(bits):
         if len(bits) < BURST_BITS:
             return np.empty(0, dtype=np.int64)
-        starts = np.arange(len(bits) - BURST_BITS + 1, dtype=np.int64)
+        # Every differential symbol maps to one dibit. A real burst can only
+        # start on an even bit index; odd candidates are false alignments.
+        starts = np.arange(0, len(bits) - BURST_BITS + 1, 2, dtype=np.int64)
         y_indices = starts[:, None] + 214 + np.arange(len(Y_BITS))
         y_errors = np.count_nonzero(bits[y_indices] != Y_BITS, axis=1)
         candidates = starts[y_errors <= 8]
@@ -435,10 +445,23 @@ class BurstFramer:
         q_indices = candidates[:, None] + q_offsets
         q_errors = np.count_nonzero(bits[q_indices] != Q_BITS, axis=1)
         candidates = candidates[q_errors <= 6]
-        return candidates
+        if not len(candidates):
+            return candidates
+        # Reject marginal combinations which individually pass the loose
+        # weak-signal limits but jointly resemble a synchronization burst only
+        # by chance.
+        y_indices = candidates[:, None] + 214 + np.arange(len(Y_BITS))
+        f_indices = candidates[:, None] + 14 + np.arange(len(F_BITS))
+        q_indices = candidates[:, None] + q_offsets
+        total_errors = (
+            np.count_nonzero(bits[y_indices] != Y_BITS, axis=1)
+            + np.count_nonzero(bits[f_indices] != F_BITS, axis=1)
+            + np.count_nonzero(bits[q_indices] != Q_BITS, axis=1)
+        )
+        return candidates[total_errors <= 18]
 
     def _find_confirmed_sync(self, bits, confidence):
-        """Require a sync burst plus one valid burst at the exact next boundary."""
+        """Require a sync burst plus two valid exact-boundary followers."""
         training_offsets = np.concatenate((
             14 + np.arange(len(F_BITS)),
             214 + np.arange(len(Y_BITS)),
@@ -447,9 +470,13 @@ class BurstFramer:
         ))
         for candidate in self._find_sync_candidates(bits):
             start = int(candidate)
-            if start + 2 * BURST_BITS > len(bits):
+            if start + 3 * BURST_BITS > len(bits):
                 continue
-            if burst_quality(bits[start + BURST_BITS:start + 2 * BURST_BITS]) is None:
+            followers = (
+                bits[start + BURST_BITS:start + 2 * BURST_BITS],
+                bits[start + 2 * BURST_BITS:start + 3 * BURST_BITS],
+            )
+            if any(burst_quality(item) is None for item in followers):
                 continue
             training_confidence = float(
                 np.mean(np.abs(confidence[start + training_offsets]))
@@ -567,7 +594,10 @@ class SignalQualityMonitor:
         self.sample_rate = float(sample_rate)
         self.input_power = None
         self.estimated_snr_db = float("nan")
-        self.samples_since_spectrum = 0
+        self.spectrum_size = min(65536, max(4096, int(self.sample_rate)))
+        self.spectrum_hop = max(4096, int(self.sample_rate))
+        self.spectrum_buffer = np.empty(0, dtype=np.complex64)
+        self.samples_until_spectrum = self.spectrum_size
 
     def update(self, samples):
         samples = np.asarray(samples, dtype=np.complex64)
@@ -580,15 +610,19 @@ class SignalQualityMonitor:
             self.input_power = power if self.input_power is None else (
                 self.input_power + alpha * (power - self.input_power)
             )
-        self.samples_since_spectrum += len(samples)
-        if self.samples_since_spectrum < self.sample_rate:
+        self.spectrum_buffer = np.concatenate((self.spectrum_buffer, samples))
+        if len(self.spectrum_buffer) < self.samples_until_spectrum:
             return
-        self.samples_since_spectrum = 0
-        count = min(len(samples), 65536)
-        if count < 4096:
-            return
+        count = self.spectrum_size
+        spectrum_samples = self.spectrum_buffer[-count:]
+        # Retain only the tail needed for the next overlapping measurement.
+        retain = max(0, count - self.spectrum_hop)
+        self.spectrum_buffer = self.spectrum_buffer[-retain:] if retain else np.empty(
+            0, dtype=np.complex64
+        )
+        self.samples_until_spectrum = self.spectrum_hop
         window = np.hanning(count)
-        spectrum = np.fft.fftshift(np.fft.fft(samples[-count:] * window))
+        spectrum = np.fft.fftshift(np.fft.fft(spectrum_samples * window))
         frequencies = np.fft.fftshift(np.fft.fftfreq(count, 1.0 / self.sample_rate))
         psd = np.abs(spectrum) ** 2 / max(float(np.sum(window ** 2)), 1.0)
         channel = np.abs(frequencies) <= 12500.0

@@ -2,6 +2,12 @@
 
 ## 1.0.0
 
+- buffered small SpyServer blocks into fixed carrier and spectrum measurement
+  windows so tracking and quality telemetry update continuously;
+- restricted synchronization candidates to dibit boundaries, required two
+  exact-boundary follower bursts, and tightened their combined training score;
+- extended short-fade hysteresis to twenty-four rejected bursts and changed
+  quality reporting to 30-second intervals with symbol-clock ppm diagnostics;
 - added adaptive carrier and Gardner timing loop bandwidths which acquire
   quickly, track gradual drift, and resist weak-signal noise after burst lock;
 - rejected isolated large carrier-estimator jumps while locked to prevent
@@ -11,8 +17,8 @@
 - made multiprocessing bridge tests self-contained so the standalone
   PyTetra-live CI matrix does not require an uninstalled sibling PyTetra tree;
 - added pre-resample TETRA channel filtering, slow RMS normalization, and
-  soft-confidence two-burst lock confirmation for weak-signal reception;
-- retained confirmed alignment through up to eleven damaged bursts without
+  soft-confidence three-burst lock confirmation for weak-signal reception;
+- retained confirmed alignment through up to twenty-three damaged bursts without
   emitting or fabricating any rejected burst data;
 - moved PyTetra protocol decoding into a separate process and forwarded its
   output asynchronously, preventing Python interpreter and terminal-I/O
@@ -54,7 +60,7 @@
   SpyServer sessions;
 - added training-sequence burst framing without fabricated replacement bits;
 - preserved carrier, timing, and mapping lock across isolated damaged bursts,
-  with full reacquisition after three consecutive structural failures;
+  with configurable sustained-damage reacquisition;
 - added live soft-bit confidence and soft-decision Viterbi correction while
   retaining CRC-gated delivery and hard-bit file compatibility;
 - removed an expensive repeated in-buffer alignment scan that could starve
