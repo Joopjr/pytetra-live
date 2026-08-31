@@ -2,6 +2,7 @@ import socket
 import struct
 import threading
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -172,6 +173,23 @@ class ClientTestCase(unittest.TestCase):
             client.receive_message()
             self.assertEqual(client.sequence_gaps, 0)
             self.assertEqual(client.last_sequence, {})
+        finally:
+            sender.close()
+            client.close()
+
+    def test_adjacent_iq_gaps_form_one_discontinuity(self):
+        client = SpyServerClient("unused", 5556)
+        client.socket, sender = socket.socketpair()
+        try:
+            sender.sendall(message(protocol.MSG_INT16_IQ, 1, 0, b""))
+            sender.sendall(message(protocol.MSG_INT16_IQ, 1, 2, b""))
+            sender.sendall(message(protocol.MSG_INT16_IQ, 1, 4, b""))
+            with patch("pytetra_live.client.time.monotonic", side_effect=[1.0, 1.1]):
+                client.receive_message()
+                client.receive_message()
+                client.receive_message()
+            self.assertEqual(client.sequence_gaps, 2)
+            self.assertEqual(client.sequence_discontinuities, 1)
         finally:
             sender.close()
             client.close()

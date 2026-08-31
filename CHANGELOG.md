@@ -17,6 +17,10 @@
   short-load-spike buffering, and made burst-lock release less aggressive;
 - selected 93.75 kS/s when supported, moved ordered PyTetra decoding to a
   bounded worker queue, and added periodic per-stage DSP performance metrics;
+- optimized the Gardner timing hot path and capped DSP batches to prevent
+  short processing bursts from starving IQ socket reception;
+- coalesced adjacent SpyServer sequence jumps into a single DSP reacquisition
+  while retaining the raw gap count in runtime statistics;
 
 - added a minimal reconnectable SpyServer protocol client;
 - added required host, port, and TETRA channel-frequency arguments;

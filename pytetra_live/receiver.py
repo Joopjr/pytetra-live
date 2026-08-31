@@ -31,6 +31,7 @@ class LiveReceiver:
     # Keep enough elasticity for short scheduler stalls without accumulating
     # seconds of latency when the decoder cannot sustain real-time operation.
     IQ_QUEUE_BLOCKS = 128
+    DSP_BATCH_SECONDS = 0.25
 
     def __init__(
         self,
@@ -133,18 +134,22 @@ class LiveReceiver:
                         return
 
             def receive_iq():
-                observed_gaps = client.sequence_gaps
+                observed_discontinuities = client.sequence_discontinuities
                 try:
                     for block in client.iq_blocks():
                         if self.stop_requested:
                             break
-                        if client.sequence_gaps != observed_gaps:
-                            observed_gaps = client.sequence_gaps
+                        if client.sequence_discontinuities != observed_discontinuities:
+                            observed_discontinuities = client.sequence_discontinuities
                             with generation_lock:
                                 generation[0] += 1
                             discard_queued_iq()
                         with generation_lock:
-                            item = (generation[0], client.sequence_gaps, block)
+                            item = (
+                                generation[0],
+                                client.sequence_discontinuities,
+                                block,
+                            )
                         try:
                             iq_queue.put_nowait(item)
                         except queue.Full:
@@ -154,7 +159,11 @@ class LiveReceiver:
                             with generation_lock:
                                 generation[0] += 1
                                 self.stats.queue_overruns += 1
-                                item = (generation[0], client.sequence_gaps, block)
+                                item = (
+                                    generation[0],
+                                    client.sequence_discontinuities,
+                                    block,
+                                )
                             discard_queued_iq()
                             iq_queue.put_nowait(item)
                 except BaseException as exc:
@@ -169,7 +178,7 @@ class LiveReceiver:
             )
             reader.start()
             observed_generation = generation[0]
-            processed_server_gaps = 0
+            processed_discontinuities = 0
             next_performance_log = time.monotonic() + 30.0
             while not self.stop_requested:
                 if duration is not None and time.monotonic() - started >= duration:
@@ -182,6 +191,11 @@ class LiveReceiver:
                         break
                     continue
                 blocks = [block]
+                batch_samples = len(block)
+                maximum_batch_samples = max(
+                    1,
+                    int(configuration.sample_rate * self.DSP_BATCH_SECONDS),
+                )
                 # Batch the available run for vectorized DSP. A newer stream
                 # generation makes all previously collected blocks stale.
                 while True:
@@ -195,9 +209,13 @@ class LiveReceiver:
                         block_generation = next_generation
                         server_gaps = next_server_gaps
                         blocks = [next_block]
+                        batch_samples = len(next_block)
                     else:
                         server_gaps = max(server_gaps, next_server_gaps)
                         blocks.append(next_block)
+                        batch_samples += len(next_block)
+                    if batch_samples >= maximum_batch_samples:
+                        break
                 if len(blocks) > 1:
                     block = np.concatenate(blocks)
                 if self.stop_requested:
@@ -207,8 +225,8 @@ class LiveReceiver:
                 if block_generation != observed_generation:
                     skipped_generations = block_generation - observed_generation
                     observed_generation = block_generation
-                    if server_gaps != processed_server_gaps:
-                        processed_server_gaps = server_gaps
+                    if server_gaps != processed_discontinuities:
+                        processed_discontinuities = server_gaps
                         demodulator = LiveTetraDemodulator(
                             configuration.sample_rate,
                             channel_offset=(

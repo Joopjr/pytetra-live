@@ -173,33 +173,59 @@ class StreamingGardner:
             return np.empty(0, dtype=np.complex64)
         block_energy = float(np.percentile(np.abs(self.buffer) ** 2, 60))
         self.energy_reference += 0.05 * (max(block_energy, 1e-12) - self.energy_reference)
-        while self.position < 1.0:
-            self.position += self.omega_nominal
-        output = []
-        while self.position + 1.0 < len(self.buffer) - 2:
-            current = self._interp(self.buffer, self.position)
+        data = self.buffer
+        position = self.position
+        omega = self.omega
+        previous_symbol = self.previous_symbol
+        previous_position = self.previous_position
+        filtered_error = self.filtered_error
+        clock_error = self.clock_error
+        while position < 1.0:
+            position += self.omega_nominal
+        # Keep the feedback loop scalar, but avoid Python list growth, method
+        # calls and repeated attribute lookups in this real-time hot path.
+        capacity = max(1, int((len(data) - position) / 3.8) + 1)
+        output = np.empty(capacity, dtype=np.complex64)
+        output_count = 0
+        while position + 1.0 < len(data) - 2:
+            index = int(position)
+            fraction = position - index
+            current = data[index] + (data[index + 1] - data[index]) * fraction
             correction = 0.0
-            if self.previous_symbol is not None:
-                midpoint_position = 0.5 * (self.previous_position + self.position)
-                midpoint = self._interp(self.buffer, midpoint_position)
+            if previous_symbol is not None:
+                midpoint_position = 0.5 * (previous_position + position)
+                midpoint_index = int(midpoint_position)
+                midpoint_fraction = midpoint_position - midpoint_index
+                midpoint = data[midpoint_index] + (
+                    data[midpoint_index + 1] - data[midpoint_index]
+                ) * midpoint_fraction
                 energy = (
-                    abs(self.previous_symbol) ** 2 + abs(midpoint) ** 2 + abs(current) ** 2
+                    previous_symbol.real ** 2 + previous_symbol.imag ** 2
+                    + midpoint.real ** 2 + midpoint.imag ** 2
+                    + current.real ** 2 + current.imag ** 2
                 )
                 if energy > 0.15 * self.energy_reference:
                     error = float(
-                        np.real(np.conj(midpoint) * (self.previous_symbol - current))
+                        (np.conj(midpoint) * (previous_symbol - current)).real
                         / (energy + 1e-12)
                     )
-                    error = float(np.clip(error, -1.0, 1.0))
-                    self.filtered_error += 0.04 * (error - self.filtered_error)
-                    self.clock_error += 0.002 * (self.filtered_error - self.clock_error)
-                    self.omega += 0.00008 * self.clock_error
-                    self.omega = float(np.clip(self.omega, 3.8, 4.2))
-                    correction = float(np.clip(0.020 * self.filtered_error, -0.08, 0.08))
-            output.append(current)
-            self.previous_symbol = current
-            self.previous_position = self.position
-            self.position += self.omega + correction
+                    error = max(-1.0, min(1.0, error))
+                    filtered_error += 0.04 * (error - filtered_error)
+                    clock_error += 0.002 * (filtered_error - clock_error)
+                    omega = max(3.8, min(4.2, omega + 0.00008 * clock_error))
+                    correction = max(-0.08, min(0.08, 0.020 * filtered_error))
+            output[output_count] = current
+            output_count += 1
+            previous_symbol = current
+            previous_position = position
+            position += omega + correction
+
+        self.position = position
+        self.omega = omega
+        self.previous_symbol = previous_symbol
+        self.previous_position = previous_position
+        self.filtered_error = filtered_error
+        self.clock_error = clock_error
 
         if self.previous_position is not None:
             keep_from = max(0, int(self.previous_position) - 2)
@@ -210,7 +236,7 @@ class StreamingGardner:
             self.position -= keep_from
             if self.previous_position is not None:
                 self.previous_position -= keep_from
-        return np.asarray(output, dtype=np.complex64)
+        return output[:output_count]
 
 
 def quadrants(symbols, previous_symbol=None, return_distances=False):

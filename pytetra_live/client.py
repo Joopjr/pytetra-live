@@ -39,6 +39,8 @@ class SpyServerClient:
         self.client_sync = None
         self.last_sequence = {}
         self.sequence_gaps = 0
+        self.sequence_discontinuities = 0
+        self._last_gap_time = None
         self._last_gap_warning = 0.0
         self._suppressed_gap_warnings = 0
 
@@ -97,6 +99,15 @@ class SpyServerClient:
             ):
                 self.sequence_gaps += 1
                 now = time.monotonic()
+                # TCP scheduling can expose one loss event as several adjacent
+                # sequence jumps. Count those raw gaps for diagnostics, but
+                # request only one expensive full DSP reacquisition.
+                if (
+                    self._last_gap_time is None
+                    or now - self._last_gap_time >= 0.25
+                ):
+                    self.sequence_discontinuities += 1
+                self._last_gap_time = now
                 if now - self._last_gap_warning >= 0.5:
                     suffix = ""
                     if self._suppressed_gap_warnings:
