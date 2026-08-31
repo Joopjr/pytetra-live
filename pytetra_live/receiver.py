@@ -265,14 +265,12 @@ class LiveReceiver:
                 confidences = demodulator.last_confidences
                 for burst_index, burst in enumerate(bursts):
                     self.bits.write(burst)
-                    if self.bridge is not None:
-                        confidence = (
-                            confidences[burst_index]
-                            if burst_index < len(confidences)
-                            else None
-                        )
-                        self.bridge.feed_burst(burst, confidence)
                     self.stats.bursts += 1
+                if self.bridge is not None and bursts:
+                    confidence_batch = (
+                        confidences if len(confidences) == len(bursts) else None
+                    )
+                    self.bridge.feed_bursts(bursts, confidence_batch)
                 now = time.monotonic()
                 if now >= next_performance_log:
                     dsp = demodulator.stats

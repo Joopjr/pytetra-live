@@ -2,6 +2,12 @@
 
 ## 1.0.0
 
+- made decoder-queue overload recovery non-throwing and removed duplicate
+  Python scalar conversions from the live PyTetra bridge;
+- batched ordered bursts and soft metrics into one multiprocessing event per
+  DSP block to prevent IPC overhead from filling the decoder queue;
+- added a `PYTETRA` log category for compact decoded Layer-2 and Layer-3
+  records while retaining `INFO` for receiver and DSP diagnostics;
 - fixed a Gardner clock-integrator regression which could create hundreds of
   ppm of artificial symbol drift on a strong signal, and bounded recovered
   clock correction to a physically plausible range;

@@ -126,6 +126,11 @@ protocol decoding cannot stall IQ reception. Every 30 seconds the normal log
 reports the DSP real-time factor, queue depths, decoder overruns, and the time
 share of the resampler, filter, carrier, timing, and framing stages.
 
+Bursts produced by one DSP block are transferred to the decoder as one ordered
+batch. Decoded Layer-2 and Layer-3 records use the `PYTETRA` log label;
+SpyServer, DSP, performance, signal-quality, and lifecycle messages retain the
+normal `INFO` label.
+
 Software amplitude gain is unnecessary: carrier estimation, timing recovery,
 and differential decisions already normalize amplitude. Multiplying samples
 would amplify noise by the same factor and cannot improve SNR. RF gain remains

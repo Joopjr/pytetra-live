@@ -11,6 +11,33 @@ import numpy as np
 
 
 LOG = logging.getLogger(__name__)
+PYTETRA_LEVEL = 25
+logging.addLevelName(PYTETRA_LEVEL, "PYTETRA")
+
+
+def log_pytetra_output(message):
+    """Give decoded Layer-2/3 records their own log category."""
+    message = str(message)
+    compact = message.startswith("DL;") and (
+        "; Layer 2 -" in message or "; Layer 3 -" in message
+    )
+    detailed = (
+        "Layer 2 - MAC / LLC" in message
+        or "Layer 3 - MLE / CMCE / MM / SNDCP" in message
+        or message.startswith((
+            "LowerMac:",
+            "UpperMac:",
+            "Llc:",
+            "Mle:",
+            "Cmce:",
+            "Mm:",
+            "Sndcp:",
+        ))
+    )
+    if compact or detailed:
+        LOG.log(PYTETRA_LEVEL, "%s", message)
+    else:
+        LOG.info("%s", message)
 
 
 class PyTetraUnavailable(RuntimeError):
@@ -39,7 +66,7 @@ class PyTetraBridge:
         # This covers compact summaries, layer headings and debug diagnostics
         # and gives them the same live timestamp as receiver/DSP messages.
         Logger.set_writer(
-            self.line_writer or (lambda message: LOG.info("%s", message))
+            self.line_writer or log_pytetra_output
         )
         self.stack = TetraStack(ConsoleUserLayer, debug=self.debug)
 
@@ -53,11 +80,12 @@ class PyTetraBridge:
         LOG.debug("PyTetra stream state reset after a demodulator gap")
 
     def feed_burst(self, burst, confidence=None):
-        bits = [int(bit) for bit in burst]
         if confidence is not None and hasattr(self.stack.phy, "feed_soft"):
-            self.stack.phy.feed_soft(bits, [float(value) for value in confidence])
+            # PyTetra performs its own validated conversion. Avoid duplicating
+            # 1020 Python scalar conversions for every live burst.
+            self.stack.phy.feed_soft(burst, confidence)
         else:
-            self.stack.phy.feed(bits)
+            self.stack.phy.feed(burst)
 
 
 def _decoder_process(events, output, errors, debug):
@@ -79,6 +107,23 @@ def _decoder_process(events, output, errors, debug):
                     else None
                 )
                 bridge.feed_burst(hard, soft)
+            elif kind == "burst_batch":
+                hard_bytes, soft_bytes, count = payload
+                hard = np.frombuffer(hard_bytes, dtype=np.uint8).reshape(
+                    int(count), -1
+                )
+                soft = (
+                    np.frombuffer(soft_bytes, dtype=np.float32).reshape(
+                        int(count), -1
+                    )
+                    if soft_bytes is not None
+                    else None
+                )
+                for index in range(int(count)):
+                    bridge.feed_burst(
+                        hard[index],
+                        soft[index] if soft is not None else None,
+                    )
     except BaseException:
         errors.put(traceback.format_exc())
     finally:
@@ -97,6 +142,7 @@ class QueuedPyTetraBridge:
         self.errors = context.Queue(maxsize=1)
         self.overruns = 0
         self._last_warning = 0.0
+        self._reset_pending = False
         self.worker = context.Process(
             target=_worker_target or _decoder_process,
             args=(self.events, self.output, self.errors, bool(debug)),
@@ -123,7 +169,7 @@ class QueuedPyTetraBridge:
             message = self.output.get()
             if message is None:
                 return
-            LOG.info("%s", message)
+            log_pytetra_output(message)
 
     def _raise_worker_error(self):
         try:
@@ -151,20 +197,42 @@ class QueuedPyTetraBridge:
 
     def _put(self, event):
         self._raise_worker_error()
+        if self._reset_pending:
+            try:
+                self.events.put_nowait(("reset", None))
+            except queue.Full:
+                self._record_overrun()
+                return
+            self._reset_pending = False
         try:
             self.events.put_nowait(event)
         except queue.Full:
-            self.overruns += 1
+            self._record_overrun()
             self._discard_pending()
-            self.events.put_nowait(("reset", None))
+            try:
+                self.events.put_nowait(("reset", None))
+            except queue.Full:
+                # multiprocessing.Queue may report full before its feeder
+                # makes discarded items visible. Defer reset and drop this
+                # event; overload must never terminate the IQ receiver.
+                self._reset_pending = True
+                return
             if event[0] != "reset":
-                self.events.put_nowait(event)
-            now = time.monotonic()
-            if now - self._last_warning >= 1.0:
-                LOG.warning(
-                    "PyTetra decoder queue overrun: stale bursts discarded"
-                )
-                self._last_warning = now
+                try:
+                    self.events.put_nowait(event)
+                except queue.Full:
+                    # The reset is already ordered. Dropping this burst is
+                    # safe and prevents a second queue.Full from escaping.
+                    return
+
+    def _record_overrun(self):
+        self.overruns += 1
+        now = time.monotonic()
+        if now - self._last_warning >= 1.0:
+            LOG.warning(
+                "PyTetra decoder queue overrun: stale bursts discarded"
+            )
+            self._last_warning = now
 
     def reset(self):
         self._put(("reset", None))
@@ -179,6 +247,28 @@ class QueuedPyTetraBridge:
             else None
         )
         self._put(("burst", (hard, soft)))
+
+    def feed_bursts(self, bursts, confidences=None):
+        """Send an ordered DSP batch through one multiprocessing event."""
+        count = len(bursts)
+        if not count:
+            return
+        hard_values = np.asarray(bursts, dtype=np.uint8)
+        if hard_values.ndim != 2:
+            raise ValueError("Burst batch must be a two-dimensional array")
+        soft_values = None
+        if confidences is not None:
+            soft_values = np.asarray(confidences, dtype=np.float32)
+            if soft_values.shape != hard_values.shape:
+                raise ValueError("Confidence batch must match burst batch")
+        self._put((
+            "burst_batch",
+            (
+                hard_values.tobytes(),
+                soft_values.tobytes() if soft_values is not None else None,
+                count,
+            ),
+        ))
 
     def close(self):
         if self.worker.is_alive():
