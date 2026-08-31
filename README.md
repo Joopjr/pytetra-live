@@ -41,6 +41,17 @@ projects/
 └── pytetra-live/
 ```
 
+Installation is optional. From the `pytetra-live` directory, run directly
+against a sibling PyTetra checkout with:
+
+```bash
+PYTHONPATH=.:../pytetra python3 -m pytetra_live.cli \
+  --host HOST --port PORT --frequency FREQUENCY_HZ
+```
+
+For example, replace `HOST`, `PORT`, and `FREQUENCY_HZ` with the SpyServer
+address, SpyServer port, and desired TETRA downlink frequency in hertz.
+
 Create a virtual environment and install both projects:
 
 ```bash
