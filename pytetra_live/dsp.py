@@ -227,9 +227,12 @@ class CarrierPLL:
 class StreamingGardner:
     """Second-order Gardner recovery retaining phase and clock across blocks."""
 
+    MAX_CLOCK_PPM = 200.0
+
     def __init__(self, phase=0.0, omega=SAMPLES_PER_SYMBOL):
         self.omega_nominal = SAMPLES_PER_SYMBOL
         self.omega = float(omega)
+        self.omega_correction = self.omega - self.omega_nominal
         self.position = float(phase) % self.omega_nominal
         self.buffer = np.empty(0, dtype=np.complex64)
         self.previous_symbol = None
@@ -295,11 +298,23 @@ class StreamingGardner:
                     filtered_error += filter_alpha * (error - filtered_error)
                     clock_alpha = 0.0010 if locked else 0.0025
                     clock_error += clock_alpha * (filtered_error - clock_error)
+                    # Integrate the timing error into a bounded clock-rate
+                    # correction. Updating omega itself on every symbol made
+                    # zero-mean detector noise perform an unbounded random
+                    # walk (hundreds of ppm even on strong signals).
+                    frequency_gain = 2.0e-8 if locked else 1.0e-7
+                    self.omega_correction += frequency_gain * filtered_error
+                    maximum_correction = (
+                        self.omega_nominal * self.MAX_CLOCK_PPM * 1e-6
+                    )
+                    self.omega_correction = max(
+                        -maximum_correction,
+                        min(maximum_correction, self.omega_correction),
+                    )
+                    omega = self.omega_nominal + self.omega_correction
                     stress = min(1.0, abs(clock_error) / 0.08)
-                    omega_gain = (0.000025 + 0.000045 * stress) if locked else 0.00010
-                    phase_gain = (0.008 + 0.008 * stress) if locked else 0.024
-                    omega = max(3.8, min(4.2, omega + omega_gain * clock_error))
-                    limit = 0.045 if locked else 0.09
+                    phase_gain = (0.008 + 0.006 * stress) if locked else 0.024
+                    limit = 0.040 if locked else 0.09
                     correction = max(-limit, min(limit, phase_gain * filtered_error))
             output[output_count] = current
             output_count += 1

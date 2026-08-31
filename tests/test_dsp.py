@@ -9,6 +9,7 @@ from pytetra_live.dsp import (
     CarrierPLL,
     LiveTetraDemodulator,
     SignalQualityMonitor,
+    StreamingGardner,
     StreamingResampler,
     WORK_RATE,
     burst_quality,
@@ -30,6 +31,22 @@ class DspTestCase(unittest.TestCase):
             [split_resampler.process(source[:333]), split_resampler.process(source[333:])]
         )
         np.testing.assert_allclose(split, one, atol=1e-5)
+
+    def test_gardner_clock_correction_is_bounded(self):
+        recovery = StreamingGardner()
+        rng = np.random.default_rng(19)
+        # Exercise many small blocks with detector noise. The recovered clock
+        # must never perform the random walk seen in the strong-signal log.
+        for unused in range(300):
+            samples = (
+                rng.standard_normal(512) + 1j * rng.standard_normal(512)
+            ).astype(np.complex64)
+            recovery.process(samples, locked=True)
+
+        drift_ppm = 1e6 * (
+            recovery.omega / recovery.omega_nominal - 1.0
+        )
+        self.assertLessEqual(abs(drift_ppm), recovery.MAX_CLOCK_PPM + 1e-6)
 
     def test_signal_monitor_reports_level_and_in_band_snr(self):
         sample_rate = 93750.0
@@ -228,6 +245,10 @@ class DspTestCase(unittest.TestCase):
         self.assertGreaterEqual(len(bursts), 38)
         self.assertTrue(demodulator.framer.locked)
         self.assertAlmostEqual(demodulator.carrier.frequency, 250.0, delta=15.0)
+        timing_drift_ppm = 1e6 * (
+            demodulator.timing.omega / demodulator.timing.omega_nominal - 1.0
+        )
+        self.assertLess(abs(timing_drift_ppm), 50.0)
 
     def test_warm_recovery_retains_carrier_without_reacquisition(self):
         demodulator = LiveTetraDemodulator(WORK_RATE)

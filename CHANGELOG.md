@@ -2,6 +2,9 @@
 
 ## 1.0.0
 
+- fixed a Gardner clock-integrator regression which could create hundreds of
+  ppm of artificial symbol drift on a strong signal, and bounded recovered
+  clock correction to a physically plausible range;
 - buffered small SpyServer blocks into fixed carrier and spectrum measurement
   windows so tracking and quality telemetry update continuously;
 - restricted synchronization candidates to dibit boundaries, required two
