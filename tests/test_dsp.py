@@ -6,6 +6,7 @@ from scipy import signal
 
 from pytetra_live.dsp import (
     BurstFramer,
+    CarrierPLL,
     LiveTetraDemodulator,
     StreamingResampler,
     WORK_RATE,
@@ -127,6 +128,21 @@ class DspTestCase(unittest.TestCase):
         self.assertGreaterEqual(len(bursts), 38)
         self.assertTrue(demodulator.framer.locked)
         self.assertAlmostEqual(demodulator.carrier.frequency, 250.0, delta=15.0)
+
+    def test_warm_recovery_retains_carrier_without_reacquisition(self):
+        demodulator = LiveTetraDemodulator(WORK_RATE)
+        demodulator.carrier = CarrierPLL(WORK_RATE, 637.5)
+        demodulator.acquisition = [np.ones(32, dtype=np.complex64)]
+        demodulator.previous_symbol = 1.0 + 0.0j
+        demodulator.framer.mapping = (False, False)
+
+        retained = demodulator.recover_stream()
+
+        self.assertEqual(retained, 637.5)
+        self.assertEqual(demodulator.carrier.frequency, 637.5)
+        self.assertEqual(demodulator.acquisition, [])
+        self.assertIsNone(demodulator.previous_symbol)
+        self.assertIsNone(demodulator.framer.mapping)
 
 
 if __name__ == "__main__":

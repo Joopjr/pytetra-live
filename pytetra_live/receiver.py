@@ -6,6 +6,8 @@ import queue
 import threading
 import time
 
+import numpy as np
+
 from .bridge import BitFileSink, IqFileSink, PyTetraBridge
 from .client import SpyServerClient, SpyServerDisconnected
 from .dsp import LiveTetraDemodulator
@@ -120,6 +122,8 @@ class LiveReceiver:
             reader_done = threading.Event()
             reader_error = []
             generation = [0]
+            full_reset_pending = [False]
+            generation_lock = threading.Lock()
 
             def discard_queued_iq():
                 while True:
@@ -136,19 +140,28 @@ class LiveReceiver:
                             break
                         if client.sequence_gaps != observed_gaps:
                             observed_gaps = client.sequence_gaps
-                            generation[0] += 1
+                            with generation_lock:
+                                generation[0] += 1
+                                full_reset_pending[0] = True
                             discard_queued_iq()
-                        item = (generation[0], block)
+                        with generation_lock:
+                            item = (
+                                generation[0], full_reset_pending[0], block
+                            )
                         try:
                             iq_queue.put_nowait(item)
                         except queue.Full:
                             # DSP is behind. Preserve real-time operation by
                             # dropping stale IQ and starting one new stream
                             # generation instead of blocking socket reception.
-                            generation[0] += 1
-                            self.stats.queue_overruns += 1
+                            with generation_lock:
+                                generation[0] += 1
+                                self.stats.queue_overruns += 1
+                                item = (
+                                    generation[0], full_reset_pending[0], block
+                                )
                             discard_queued_iq()
-                            iq_queue.put_nowait((generation[0], block))
+                            iq_queue.put_nowait(item)
                 except BaseException as exc:
                     reader_error.append(exc)
                 finally:
@@ -166,11 +179,30 @@ class LiveReceiver:
                     self.stop_requested = True
                     break
                 try:
-                    block_generation, block = iq_queue.get(timeout=0.1)
+                    block_generation, full_reset, block = iq_queue.get(timeout=0.1)
                 except queue.Empty:
                     if reader_done.is_set():
                         break
                     continue
+                blocks = [block]
+                # Batch the available run for vectorized DSP. A newer stream
+                # generation makes all previously collected blocks stale.
+                while True:
+                    try:
+                        next_generation, next_full_reset, next_block = (
+                            iq_queue.get_nowait()
+                        )
+                    except queue.Empty:
+                        break
+                    if next_generation != block_generation:
+                        block_generation = next_generation
+                        full_reset = next_full_reset
+                        blocks = [next_block]
+                    else:
+                        full_reset = full_reset or next_full_reset
+                        blocks.append(next_block)
+                if len(blocks) > 1:
+                    block = np.concatenate(blocks)
                 if self.stop_requested:
                     break
                 self.iq.write(block)
@@ -178,18 +210,31 @@ class LiveReceiver:
                 if block_generation != observed_generation:
                     skipped_generations = block_generation - observed_generation
                     observed_generation = block_generation
-                    demodulator = LiveTetraDemodulator(
-                        configuration.sample_rate,
-                        channel_offset=(
-                            configuration.frequency
-                            - configuration.iq_center_frequency
-                        ),
-                        nominal_frequency=configuration.frequency,
-                    )
+                    if full_reset:
+                        demodulator = LiveTetraDemodulator(
+                            configuration.sample_rate,
+                            channel_offset=(
+                                configuration.frequency
+                                - configuration.iq_center_frequency
+                            ),
+                            nominal_frequency=configuration.frequency,
+                        )
+                        reset_description = "full DSP reacquisition"
+                        reset_prefix = "SpyServer IQ discontinuity"
+                        with generation_lock:
+                            full_reset_pending[0] = False
+                    else:
+                        retained = demodulator.recover_stream()
+                        reset_description = (
+                            "warm DSP recovery with carrier=%+.2f Hz" % retained
+                            if retained is not None
+                            else "DSP recovery; carrier acquisition still required"
+                        )
+                        reset_prefix = "Local IQ queue overrun"
                     if self.bridge is not None:
                         self.bridge.reset()
                     LOG.warning(
-                        "DSP state reset after an IQ discontinuity"
+                        "%s: %s" % (reset_prefix, reset_description)
                         + (
                             " (%d discontinuities coalesced)" % skipped_generations
                             if skipped_generations > 1

@@ -305,10 +305,23 @@ class BurstFramer:
     def _find_sync(bits):
         if len(bits) < BURST_BITS:
             return None
-        for start in range(0, len(bits) - BURST_BITS + 1):
-            quality = burst_quality(bits[start:start + BURST_BITS])
-            if quality is not None and quality[0] == "synchronization":
-                return start
+        starts = np.arange(len(bits) - BURST_BITS + 1, dtype=np.int64)
+        y_indices = starts[:, None] + 214 + np.arange(len(Y_BITS))
+        y_errors = np.count_nonzero(bits[y_indices] != Y_BITS, axis=1)
+        candidates = starts[y_errors <= 8]
+        if not len(candidates):
+            return None
+        f_indices = candidates[:, None] + 14 + np.arange(len(F_BITS))
+        f_errors = np.count_nonzero(bits[f_indices] != F_BITS, axis=1)
+        candidates = candidates[f_errors <= 16]
+        if not len(candidates):
+            return None
+        q_offsets = np.concatenate((np.arange(500, 510), np.arange(0, 12)))
+        q_indices = candidates[:, None] + q_offsets
+        q_errors = np.count_nonzero(bits[q_indices] != Q_BITS, axis=1)
+        candidates = candidates[q_errors <= 6]
+        if len(candidates):
+            return int(candidates[0])
         return None
 
     def feed(self, values, distances=None):
@@ -430,6 +443,25 @@ class LiveTetraDemodulator:
             self.shifter.frequency,
             nominal_frequency=self.nominal_frequency,
         )
+
+    def recover_stream(self):
+        """Reset discontinuous stream state while retaining carrier lock."""
+        retained_frequency = (
+            self.carrier.frequency if self.carrier is not None else None
+        )
+        self.resampler = StreamingResampler(self.input_rate, WORK_RATE)
+        self.filter_state = np.zeros(len(self.taps) - 1, dtype=np.complex128)
+        self.acquisition = []
+        self.carrier = (
+            CarrierPLL(WORK_RATE, retained_frequency)
+            if retained_frequency is not None
+            else None
+        )
+        self.timing = StreamingGardner()
+        self.previous_symbol = None
+        self.framer = BurstFramer()
+        self.last_confidences = []
+        return retained_frequency
 
     def process(self, iq):
         self.stats.input_samples += len(iq)

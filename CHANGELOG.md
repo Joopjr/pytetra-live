@@ -8,6 +8,11 @@
   rate-limited repeated gap warnings;
 - added a queue-overrun statistic to distinguish local DSP backpressure from
   network or SpyServer packet loss;
+- retained the stable carrier estimate during local queue-overrun recovery,
+  avoiding repeated full carrier acquisition while resetting only stream-
+  dependent filter, timing, differential, and burst-alignment state;
+- vectorized synchronization-sequence acquisition and batched queued IQ blocks
+  to remove repeated Python scanning and per-message DSP overhead;
 
 - added a minimal reconnectable SpyServer protocol client;
 - added required host, port, and TETRA channel-frequency arguments;
