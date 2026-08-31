@@ -282,13 +282,14 @@ class LiveReceiver:
                     LOG.info(
                         "Performance: dsp_realtime=%.2fx iq_queue=%d/%d "
                         "decoder_queue=%d decoder_overruns=%d stages="
-                        "resample(%.1f%%),filter(%.1f%%),carrier(%.1f%%),"
+                        "channel(%.1f%%),resample(%.1f%%),filter(%.1f%%),carrier(%.1f%%),"
                         "timing(%.1f%%),framing(%.1f%%)",
                         realtime,
                         iq_queue.qsize(),
                         self.IQ_QUEUE_BLOCKS,
                         self.bridge.queue_depth if self.bridge is not None else 0,
                         self.bridge.overruns if self.bridge is not None else 0,
+                        100.0 * dsp.channel_filter_seconds / total_stages,
                         100.0 * dsp.resample_seconds / total_stages,
                         100.0 * dsp.filter_seconds / total_stages,
                         100.0 * dsp.carrier_seconds / total_stages,

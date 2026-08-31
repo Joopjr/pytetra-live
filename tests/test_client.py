@@ -68,6 +68,11 @@ class FakeSpyServer(threading.Thread):
                 self.receive_command(connection)
                 iq = np.asarray([1000, -1000, 2000, -2000], dtype="<i2").tobytes()
                 connection.sendall(message(protocol.MSG_INT16_IQ, 1, 0, iq))
+        except OSError as exc:
+            # Tests that exercise only local client helpers do not connect;
+            # closing their listener is the normal way to stop this thread.
+            if self.listener.fileno() != -1:
+                self.error = exc
         except Exception as exc:
             self.error = exc
 

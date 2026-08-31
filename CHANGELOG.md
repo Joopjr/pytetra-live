@@ -2,6 +2,10 @@
 
 ## 1.0.0
 
+- added pre-resample TETRA channel filtering, slow RMS normalization, and
+  soft-confidence two-burst lock confirmation for weak-signal reception;
+- retained confirmed alignment through up to eleven damaged bursts without
+  emitting or fabricating any rejected burst data;
 - moved PyTetra protocol decoding into a separate process and forwarded its
   output asynchronously, preventing Python interpreter and terminal-I/O
   contention from starving the real-time DSP pipeline;

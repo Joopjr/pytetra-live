@@ -61,11 +61,60 @@ class DspTestCase(unittest.TestCase):
         self.assertEqual(len(bursts), 200)
         self.assertTrue(framer.locked)
 
+    def test_framer_does_not_lock_on_one_unconfirmed_sync_burst(self):
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:2 * 510].copy()
+        self.assertEqual(burst_quality(raw[:510])[0], "synchronization")
+        raw[510:] = 0
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray(
+            [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
+            dtype=np.uint8,
+        )
+        framer = BurstFramer()
+
+        bursts, gap = framer.feed(values)
+
+        self.assertEqual(bursts, [])
+        self.assertFalse(gap)
+        self.assertFalse(framer.locked)
+
+    def test_channel_filter_rejects_out_of_channel_interference(self):
+        demodulator = LiveTetraDemodulator(93750.0)
+        frequencies, response = signal.freqz(
+            demodulator.channel_taps,
+            worN=8192,
+            fs=demodulator.input_rate,
+        )
+        passband = abs(response[np.argmin(abs(frequencies - 12000.0))])
+        adjacent = abs(response[np.argmin(abs(frequencies - 30000.0))])
+
+        self.assertGreater(passband, 0.90)
+        self.assertLess(adjacent, 0.01)
+
     def test_framer_keeps_lock_across_one_damaged_burst(self):
-        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:3 * 510].copy()
-        # Damage the complete middle burst so it cannot pass structural burst
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:4 * 510].copy()
+        # Confirm with two valid bursts, then damage one complete burst while
+        # leaving the following burst perfectly aligned.
         # validation, while leaving the following burst perfectly aligned.
-        raw[510:1020] = 0
+        raw[2 * 510:3 * 510] = 0
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray(
+            [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
+            dtype=np.uint8,
+        )
+        framer = BurstFramer(rejection_limit=3)
+
+        bursts, gap = framer.feed(values)
+
+        self.assertTrue(gap)
+        self.assertEqual(len(bursts), 3)
+        self.assertTrue(framer.locked)
+        self.assertEqual(framer.rejected, 1)
+        self.assertEqual(framer.consecutive_rejections, 0)
+
+    def test_framer_releases_lock_after_sustained_damage(self):
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:5 * 510].copy()
+        raw[2 * 510:] = 0
         reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
         values = np.asarray(
             [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
@@ -77,30 +126,12 @@ class DspTestCase(unittest.TestCase):
 
         self.assertTrue(gap)
         self.assertEqual(len(bursts), 2)
-        self.assertTrue(framer.locked)
-        self.assertEqual(framer.rejected, 1)
-        self.assertEqual(framer.consecutive_rejections, 0)
-
-    def test_framer_releases_lock_after_sustained_damage(self):
-        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:4 * 510].copy()
-        raw[510:] = 0
-        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
-        values = np.asarray(
-            [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
-            dtype=np.uint8,
-        )
-        framer = BurstFramer(rejection_limit=3)
-
-        bursts, gap = framer.feed(values)
-
-        self.assertTrue(gap)
-        self.assertEqual(len(bursts), 1)
         self.assertFalse(framer.locked)
         self.assertIsNone(framer.mapping)
 
     def test_default_framer_survives_five_damaged_bursts(self):
-        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:7 * 510].copy()
-        raw[510:6 * 510] = 0
+        raw = np.fromfile(self.fixture_path(), dtype=np.uint8)[:8 * 510].copy()
+        raw[2 * 510:7 * 510] = 0
         reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
         values = np.asarray(
             [reverse[tuple(pair)] for pair in raw.reshape(-1, 2)],
@@ -111,7 +142,7 @@ class DspTestCase(unittest.TestCase):
         bursts, gap = framer.feed(values)
 
         self.assertTrue(gap)
-        self.assertEqual(len(bursts), 2)
+        self.assertEqual(len(bursts), 3)
         self.assertTrue(framer.locked)
 
     def test_live_pipeline_acquires_frequency_timing_and_bursts(self):

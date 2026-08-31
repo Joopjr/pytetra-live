@@ -23,6 +23,10 @@ The decoder never inserts replacement symbols or fabricates missing bits. When
 burst lock is lost, incomplete data is discarded and PyTetra protocol state is
 reset before delivery resumes at a newly validated burst.
 
+Weak-signal reception uses a selective 25 kHz channel filter, slow RMS level
+normalization, coherence-gated carrier tracking, and two-burst structural lock
+confirmation. A rejected burst is still discarded rather than reconstructed.
+
 ## Requirements
 
 - Python 3.9 or newer
