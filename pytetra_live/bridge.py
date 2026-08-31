@@ -1,9 +1,11 @@
 """Optional direct bridge from validated bursts into PyTetra."""
 
 import logging
+import multiprocessing
 import queue
 import threading
 import time
+import traceback
 
 import numpy as np
 
@@ -16,8 +18,9 @@ class PyTetraUnavailable(RuntimeError):
 
 
 class PyTetraBridge:
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, line_writer=None):
         self.debug = bool(debug)
+        self.line_writer = line_writer
         self.stack = None
         self.resets = 0
         self._create_stack()
@@ -35,7 +38,9 @@ class PyTetraBridge:
         # Route every PyTetra line through this application's logging format.
         # This covers compact summaries, layer headings and debug diagnostics
         # and gives them the same live timestamp as receiver/DSP messages.
-        Logger.set_writer(lambda message: LOG.info("%s", message))
+        Logger.set_writer(
+            self.line_writer or (lambda message: LOG.info("%s", message))
+        )
         self.stack = TetraStack(ConsoleUserLayer, debug=self.debug)
 
     def reset(self):
@@ -55,37 +60,87 @@ class PyTetraBridge:
             self.stack.phy.feed(bits)
 
 
+def _decoder_process(events, output, errors, debug):
+    """Run stateful PyTetra decoding outside the DSP interpreter process."""
+    try:
+        bridge = PyTetraBridge(debug=debug, line_writer=output.put)
+        while True:
+            kind, payload = events.get()
+            if kind == "stop":
+                return
+            if kind == "reset":
+                bridge.reset()
+            elif kind == "burst":
+                hard_bytes, soft_bytes = payload
+                hard = np.frombuffer(hard_bytes, dtype=np.uint8)
+                soft = (
+                    np.frombuffer(soft_bytes, dtype=np.float32)
+                    if soft_bytes is not None
+                    else None
+                )
+                bridge.feed_burst(hard, soft)
+    except BaseException:
+        errors.put(traceback.format_exc())
+    finally:
+        output.put(None)
+
+
 class QueuedPyTetraBridge:
-    """Keep ordered PyTetra decoding off the real-time IQ/DSP path."""
+    """Decode PyTetra in a separate process without blocking real-time DSP."""
 
     def __init__(self, debug=False, capacity=512):
-        self.bridge = PyTetraBridge(debug=debug)
-        self.events = queue.Queue(maxsize=max(4, int(capacity)))
+        context = multiprocessing.get_context("spawn")
+        self.events = context.Queue(maxsize=max(4, int(capacity)))
+        # Output is intentionally unbounded: terminal I/O must never stall the
+        # protocol decoder or, indirectly, the DSP pipeline.
+        self.output = context.Queue()
+        self.errors = context.Queue(maxsize=1)
         self.overruns = 0
-        self.error = None
         self._last_warning = 0.0
-        self.worker = threading.Thread(
-            target=self._run, name="pytetra-decoder", daemon=True
+        self.worker = context.Process(
+            target=_decoder_process,
+            args=(self.events, self.output, self.errors, bool(debug)),
+            name="pytetra-decoder",
+            daemon=True,
         )
         self.worker.start()
+        self.output_worker = threading.Thread(
+            target=self._forward_output,
+            name="pytetra-log-forwarder",
+            daemon=True,
+        )
+        self.output_worker.start()
 
     @property
     def queue_depth(self):
-        return self.events.qsize()
-
-    def _run(self):
         try:
-            while True:
-                kind, payload = self.events.get()
-                if kind == "stop":
-                    return
-                if kind == "reset":
-                    self.bridge.reset()
-                elif kind == "burst":
-                    burst, confidence = payload
-                    self.bridge.feed_burst(burst, confidence)
-        except BaseException as exc:
-            self.error = exc
+            return self.events.qsize()
+        except (NotImplementedError, OSError):
+            return 0
+
+    def _forward_output(self):
+        while True:
+            message = self.output.get()
+            if message is None:
+                return
+            LOG.info("%s", message)
+
+    def _raise_worker_error(self):
+        try:
+            error = self.errors.get_nowait()
+        except queue.Empty:
+            error = None
+        if error is not None:
+            raise RuntimeError("PyTetra decoder process failed:\n%s" % error)
+        if (
+            not self.worker.is_alive()
+            and self.worker.exitcode is not None
+            and self.worker.exitcode != 0
+        ):
+            raise RuntimeError(
+                "PyTetra decoder process stopped with exit code %d"
+                % self.worker.exitcode
+            )
 
     def _discard_pending(self):
         while True:
@@ -95,8 +150,7 @@ class QueuedPyTetraBridge:
                 return
 
     def _put(self, event):
-        if self.error is not None:
-            raise RuntimeError("PyTetra decoder worker failed") from self.error
+        self._raise_worker_error()
         try:
             self.events.put_nowait(event)
         except queue.Full:
@@ -116,9 +170,11 @@ class QueuedPyTetraBridge:
         self._put(("reset", None))
 
     def feed_burst(self, burst, confidence=None):
-        hard = np.asarray(burst, dtype=np.uint8).copy()
+        # Immutable bytes are serialized safely even if the caller reuses its
+        # NumPy buffers before multiprocessing's feeder thread runs.
+        hard = np.asarray(burst, dtype=np.uint8).tobytes()
         soft = (
-            np.asarray(confidence, dtype=np.float32).copy()
+            np.asarray(confidence, dtype=np.float32).tobytes()
             if confidence is not None
             else None
         )
@@ -128,8 +184,12 @@ class QueuedPyTetraBridge:
         if self.worker.is_alive():
             self.events.put(("stop", None))
             self.worker.join(timeout=10.0)
-        if self.error is not None:
-            raise RuntimeError("PyTetra decoder worker failed") from self.error
+        if self.worker.is_alive():
+            self.worker.terminate()
+            self.worker.join(timeout=2.0)
+            raise RuntimeError("PyTetra decoder process did not stop cleanly")
+        self.output_worker.join(timeout=2.0)
+        self._raise_worker_error()
 
 
 class BitFileSink:

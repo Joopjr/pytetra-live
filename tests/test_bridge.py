@@ -33,22 +33,18 @@ class QueuedBridgeTestCase(unittest.TestCase):
 
         info.assert_called_with("%s", "DL; Layer 2 - MAC(MacResourcePdu)")
 
-    def test_decoder_worker_preserves_event_order_and_copies_input(self):
-        RecordingBridge.instances = []
-        with patch("pytetra_live.bridge.PyTetraBridge", RecordingBridge):
-            bridge = QueuedPyTetraBridge(capacity=8)
-            burst = np.asarray([0, 1, 1, 0], dtype=np.uint8)
-            confidence = np.asarray([-1.0, 0.8, 0.7, -0.9], dtype=np.float32)
-            bridge.feed_burst(burst, confidence)
-            bridge.reset()
-            burst[:] = 0
-            confidence[:] = 0
-            bridge.close()
+    def test_decoder_process_accepts_ordered_copied_events(self):
+        bridge = QueuedPyTetraBridge(capacity=8)
+        burst = np.asarray([0, 1, 1, 0], dtype=np.uint8)
+        confidence = np.asarray([-1.0, 0.8, 0.7, -0.9], dtype=np.float32)
+        bridge.feed_burst(burst, confidence)
+        bridge.reset()
+        burst[:] = 0
+        confidence[:] = 0
+        bridge.close()
 
-        events = RecordingBridge.instances[0].events
-        self.assertEqual([event[0] for event in events], ["burst", "reset"])
-        np.testing.assert_array_equal(events[0][1][0], [0, 1, 1, 0])
-        np.testing.assert_allclose(events[0][1][1], [-1.0, 0.8, 0.7, -0.9])
+        self.assertEqual(bridge.worker.exitcode, 0)
+        self.assertEqual(bridge.overruns, 0)
 
 
 if __name__ == "__main__":

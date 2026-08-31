@@ -2,6 +2,9 @@
 
 ## 1.0.0
 
+- moved PyTetra protocol decoding into a separate process and forwarded its
+  output asynchronously, preventing Python interpreter and terminal-I/O
+  contention from starving the real-time DSP pipeline;
 - routed compact and diagnostic PyTetra output through the live logger so every
   emitted line carries the same timestamp and severity prefix;
 
