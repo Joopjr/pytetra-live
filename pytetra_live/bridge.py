@@ -88,7 +88,7 @@ def _decoder_process(events, output, errors, debug):
 class QueuedPyTetraBridge:
     """Decode PyTetra in a separate process without blocking real-time DSP."""
 
-    def __init__(self, debug=False, capacity=512):
+    def __init__(self, debug=False, capacity=512, _worker_target=None):
         context = multiprocessing.get_context("spawn")
         self.events = context.Queue(maxsize=max(4, int(capacity)))
         # Output is intentionally unbounded: terminal I/O must never stall the
@@ -98,7 +98,7 @@ class QueuedPyTetraBridge:
         self.overruns = 0
         self._last_warning = 0.0
         self.worker = context.Process(
-            target=_decoder_process,
+            target=_worker_target or _decoder_process,
             args=(self.events, self.output, self.errors, bool(debug)),
             name="pytetra-decoder",
             daemon=True,

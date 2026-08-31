@@ -2,6 +2,8 @@
 
 ## 1.0.0
 
+- made multiprocessing bridge tests self-contained so the standalone
+  PyTetra-live CI matrix does not require an uninstalled sibling PyTetra tree;
 - added pre-resample TETRA channel filtering, slow RMS normalization, and
   soft-confidence two-burst lock confirmation for weak-signal reception;
 - retained confirmed alignment through up to eleven damaged bursts without
