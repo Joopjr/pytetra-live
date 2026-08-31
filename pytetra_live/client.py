@@ -140,7 +140,7 @@ class SpyServerClient:
     def set_setting(self, setting_type, value):
         self._send(protocol.setting(setting_type, value))
 
-    def choose_decimation(self, minimum_rate=96000.0, maximum_rate=250000.0):
+    def choose_decimation(self, minimum_rate=90000.0, maximum_rate=250000.0):
         info = self.device_info
         candidates = []
         for stage in range(info.minimum_iq_decimation, info.decimation_stage_count + 1):
@@ -197,7 +197,7 @@ class SpyServerClient:
         # digital channel shifting instead.
         channel_guard = 25000.0
         required_rate = max(
-            96000.0,
+            90000.0,
             2.0 * (abs(channel - center) + channel_guard),
         )
 

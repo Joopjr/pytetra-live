@@ -137,9 +137,9 @@ class ClientTestCase(unittest.TestCase):
         configuration = client.configure(393462500)
 
         self.assertEqual(configuration.iq_center_frequency, 393462500)
-        self.assertEqual(configuration.decimation, 5)
-        self.assertEqual(configuration.sample_rate, 187500.0)
-        self.assertIn((protocol.SETTING_IQ_DECIMATION, 5), settings)
+        self.assertEqual(configuration.decimation, 6)
+        self.assertEqual(configuration.sample_rate, 93750.0)
+        self.assertIn((protocol.SETTING_IQ_DECIMATION, 6), settings)
         self.assertIn((protocol.SETTING_IQ_FREQUENCY, 393462500), settings)
 
     def test_locked_device_falls_back_to_wide_local_tuning(self):

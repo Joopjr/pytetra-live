@@ -79,7 +79,7 @@ center this client's IQ stream on `--frequency`. This per-client operation does
 not move the shared hardware center and remains available when device control
 is locked, provided the frequency lies inside the IQ range reported by
 SpyServer. The narrowest suitable stream is then selected; a 6 MS/s server
-normally supplies 187.5 kS/s for a single TETRA channel.
+normally supplies 93.75 kS/s for a single TETRA channel.
 
 If the requested frequency lies outside the permitted per-client IQ range,
 PyTetra-live retains the existing IQ center and falls back to the narrowest
@@ -94,7 +94,7 @@ adjacent 25 kHz TETRA channel.
 
 Burst lock uses short-fade hysteresis. A structurally invalid burst is dropped
 and reported as a downstream gap without synthesizing any replacement bits.
-Carrier, timing, and quadrant mapping remain locked unless three consecutive
+Carrier, timing, and quadrant mapping remain locked unless six consecutive
 bursts are invalid. Sustained damage triggers full burst reacquisition.
 
 During direct live delivery, π/4-DQPSK symbol distances are retained as signed
@@ -102,6 +102,11 @@ bit confidence. A soft-decision Viterbi decoder uses that confidence after
 unscrambling and deinterleaving. Corrected control blocks are delivered only
 when their normal TETRA CRC succeeds; failed blocks remain discarded. The
 compatible `.bits` output intentionally remains hard-decision data.
+
+PyTetra decoding runs in a separate ordered worker queue so convolutional and
+protocol decoding cannot stall IQ reception. Every 30 seconds the normal log
+reports the DSP real-time factor, queue depths, decoder overruns, and the time
+share of the resampler, filter, carrier, timing, and framing stages.
 
 Software amplitude gain is unnecessary: carrier estimation, timing recovery,
 and differential decisions already normalize amplitude. Multiplying samples

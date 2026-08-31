@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-from .bridge import BitFileSink, IqFileSink, PyTetraBridge
+from .bridge import BitFileSink, IqFileSink, QueuedPyTetraBridge
 from .client import SpyServerClient, SpyServerDisconnected
 from .dsp import LiveTetraDemodulator
 
@@ -24,6 +24,7 @@ class ReceiverStats:
     bursts: int = 0
     sequence_gaps: int = 0
     queue_overruns: int = 0
+    decoder_overruns: int = 0
 
 
 class LiveReceiver:
@@ -54,7 +55,7 @@ class LiveReceiver:
         self.gain = gain
         self.sample_rate = sample_rate
         self.debug = bool(debug)
-        self.bridge = PyTetraBridge(debug=debug) if decode else None
+        self.bridge = QueuedPyTetraBridge(debug=debug) if decode else None
         self.bits = BitFileSink(bits_output)
         self.iq = IqFileSink(iq_output)
         self.reconnect = bool(reconnect)
@@ -169,6 +170,7 @@ class LiveReceiver:
             reader.start()
             observed_generation = generation[0]
             processed_server_gaps = 0
+            next_performance_log = time.monotonic() + 30.0
             while not self.stop_requested:
                 if duration is not None and time.monotonic() - started >= duration:
                     self.stop_requested = True
@@ -249,6 +251,33 @@ class LiveReceiver:
                         )
                         self.bridge.feed_burst(burst, confidence)
                     self.stats.bursts += 1
+                now = time.monotonic()
+                if now >= next_performance_log:
+                    dsp = demodulator.stats
+                    input_seconds = dsp.input_samples / configuration.sample_rate
+                    realtime = (
+                        input_seconds / dsp.processing_seconds
+                        if dsp.processing_seconds > 0.0
+                        else 0.0
+                    )
+                    total_stages = max(dsp.processing_seconds, 1e-12)
+                    LOG.info(
+                        "Performance: dsp_realtime=%.2fx iq_queue=%d/%d "
+                        "decoder_queue=%d decoder_overruns=%d stages="
+                        "resample(%.1f%%),filter(%.1f%%),carrier(%.1f%%),"
+                        "timing(%.1f%%),framing(%.1f%%)",
+                        realtime,
+                        iq_queue.qsize(),
+                        self.IQ_QUEUE_BLOCKS,
+                        self.bridge.queue_depth if self.bridge is not None else 0,
+                        self.bridge.overruns if self.bridge is not None else 0,
+                        100.0 * dsp.resample_seconds / total_stages,
+                        100.0 * dsp.filter_seconds / total_stages,
+                        100.0 * dsp.carrier_seconds / total_stages,
+                        100.0 * dsp.timing_seconds / total_stages,
+                        100.0 * dsp.framing_seconds / total_stages,
+                    )
+                    next_performance_log = now + 30.0
             if reader_error:
                 raise reader_error[0]
             self.stats.sequence_gaps += client.sequence_gaps
@@ -282,4 +311,7 @@ class LiveReceiver:
         finally:
             self.bits.close()
             self.iq.close()
+            if self.bridge is not None:
+                self.stats.decoder_overruns = self.bridge.overruns
+                self.bridge.close()
         return self.stats

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import logging
+import time
 
 import numpy as np
 from scipy import signal
@@ -412,6 +413,12 @@ class DemodulatorStats:
     symbols: int = 0
     bursts: int = 0
     lock_losses: int = 0
+    processing_seconds: float = 0.0
+    resample_seconds: float = 0.0
+    filter_seconds: float = 0.0
+    carrier_seconds: float = 0.0
+    timing_seconds: float = 0.0
+    framing_seconds: float = 0.0
 
 
 class LiveTetraDemodulator:
@@ -464,19 +471,26 @@ class LiveTetraDemodulator:
         return retained_frequency
 
     def process(self, iq):
+        process_started = time.perf_counter()
         self.stats.input_samples += len(iq)
         shifted = self.shifter.process(np.asarray(iq, dtype=np.complex64))
+        stage_started = time.perf_counter()
         resampled = self.resampler.process(shifted)
+        self.stats.resample_seconds += time.perf_counter() - stage_started
         if not len(resampled):
+            self.stats.processing_seconds += time.perf_counter() - process_started
             return [], False
+        stage_started = time.perf_counter()
         filtered, self.filter_state = signal.lfilter(
             self.taps, [1.0], resampled, zi=self.filter_state
         )
         filtered = filtered.astype(np.complex64)
+        self.stats.filter_seconds += time.perf_counter() - stage_started
         if self.carrier is None:
             self.acquisition.append(filtered)
             available = sum(len(block) for block in self.acquisition)
             if available < self.acquisition_samples:
+                self.stats.processing_seconds += time.perf_counter() - process_started
                 return [], False
             block = np.concatenate(self.acquisition)
             self.acquisition = []
@@ -493,15 +507,22 @@ class LiveTetraDemodulator:
                 )
             self.carrier = CarrierPLL(WORK_RATE, estimate)
             filtered = block
+        stage_started = time.perf_counter()
         corrected = self.carrier.process(filtered)
+        self.stats.carrier_seconds += time.perf_counter() - stage_started
+        stage_started = time.perf_counter()
         symbols = self.timing.process(corrected)
+        self.stats.timing_seconds += time.perf_counter() - stage_started
         self.stats.symbols += len(symbols)
         values, distances, self.previous_symbol = quadrants(
             symbols, self.previous_symbol, return_distances=True
         )
+        stage_started = time.perf_counter()
         bursts, gap = self.framer.feed(values, distances)
+        self.stats.framing_seconds += time.perf_counter() - stage_started
         self.last_confidences = self.framer.last_confidences
         self.stats.bursts += len(bursts)
         if gap:
             self.stats.lock_losses += 1
+        self.stats.processing_seconds += time.perf_counter() - process_started
         return bursts, gap

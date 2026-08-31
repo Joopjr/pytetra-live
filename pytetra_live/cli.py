@@ -99,13 +99,14 @@ def main(argv=None):
         return 1
     logging.info(
         "Stopped: connections=%d reconnects=%d samples=%d bursts=%d "
-        "sequence_gaps=%d queue_overruns=%d",
+        "sequence_gaps=%d queue_overruns=%d decoder_overruns=%d",
         stats.connections,
         stats.reconnects,
         stats.iq_samples,
         stats.bursts,
         stats.sequence_gaps,
         stats.queue_overruns,
+        stats.decoder_overruns,
     )
     return 0
 

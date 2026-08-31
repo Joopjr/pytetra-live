@@ -1,6 +1,9 @@
 """Optional direct bridge from validated bursts into PyTetra."""
 
 import logging
+import queue
+import threading
+import time
 
 import numpy as np
 
@@ -37,7 +40,7 @@ class PyTetraBridge:
             reset_after_gap()
         else:
             self._create_stack()
-        LOG.info("PyTetra stream state reset after a demodulator gap")
+        LOG.debug("PyTetra stream state reset after a demodulator gap")
 
     def feed_burst(self, burst, confidence=None):
         bits = [int(bit) for bit in burst]
@@ -45,6 +48,83 @@ class PyTetraBridge:
             self.stack.phy.feed_soft(bits, [float(value) for value in confidence])
         else:
             self.stack.phy.feed(bits)
+
+
+class QueuedPyTetraBridge:
+    """Keep ordered PyTetra decoding off the real-time IQ/DSP path."""
+
+    def __init__(self, debug=False, capacity=512):
+        self.bridge = PyTetraBridge(debug=debug)
+        self.events = queue.Queue(maxsize=max(4, int(capacity)))
+        self.overruns = 0
+        self.error = None
+        self._last_warning = 0.0
+        self.worker = threading.Thread(
+            target=self._run, name="pytetra-decoder", daemon=True
+        )
+        self.worker.start()
+
+    @property
+    def queue_depth(self):
+        return self.events.qsize()
+
+    def _run(self):
+        try:
+            while True:
+                kind, payload = self.events.get()
+                if kind == "stop":
+                    return
+                if kind == "reset":
+                    self.bridge.reset()
+                elif kind == "burst":
+                    burst, confidence = payload
+                    self.bridge.feed_burst(burst, confidence)
+        except BaseException as exc:
+            self.error = exc
+
+    def _discard_pending(self):
+        while True:
+            try:
+                self.events.get_nowait()
+            except queue.Empty:
+                return
+
+    def _put(self, event):
+        if self.error is not None:
+            raise RuntimeError("PyTetra decoder worker failed") from self.error
+        try:
+            self.events.put_nowait(event)
+        except queue.Full:
+            self.overruns += 1
+            self._discard_pending()
+            self.events.put_nowait(("reset", None))
+            if event[0] != "reset":
+                self.events.put_nowait(event)
+            now = time.monotonic()
+            if now - self._last_warning >= 1.0:
+                LOG.warning(
+                    "PyTetra decoder queue overrun: stale bursts discarded"
+                )
+                self._last_warning = now
+
+    def reset(self):
+        self._put(("reset", None))
+
+    def feed_burst(self, burst, confidence=None):
+        hard = np.asarray(burst, dtype=np.uint8).copy()
+        soft = (
+            np.asarray(confidence, dtype=np.float32).copy()
+            if confidence is not None
+            else None
+        )
+        self._put(("burst", (hard, soft)))
+
+    def close(self):
+        if self.worker.is_alive():
+            self.events.put(("stop", None))
+            self.worker.join(timeout=10.0)
+        if self.error is not None:
+            raise RuntimeError("PyTetra decoder worker failed") from self.error
 
 
 class BitFileSink:

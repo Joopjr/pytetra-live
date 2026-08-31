@@ -15,6 +15,8 @@
   to remove repeated Python scanning and per-message DSP overhead;
 - ensured each SpyServer gap triggers only one full reacquisition, increased
   short-load-spike buffering, and made burst-lock release less aggressive;
+- selected 93.75 kS/s when supported, moved ordered PyTetra decoding to a
+  bounded worker queue, and added periodic per-stage DSP performance metrics;
 
 - added a minimal reconnectable SpyServer protocol client;
 - added required host, port, and TETRA channel-frequency arguments;
