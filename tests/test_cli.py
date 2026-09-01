@@ -20,6 +20,20 @@ class CliTestCase(unittest.TestCase):
         self.assertIsNone(args.gain)
         self.assertIsNone(args.center_frequency)
 
+    def test_log_arguments_accept_no_value_or_directory(self):
+        parser = build_argument_parser()
+        required = ["--host", "127.0.0.1", "--port", "5556", "--frequency", "1"]
+        self.assertEqual(parser.parse_args(required + ["--log"]).log, ".")
+        self.assertEqual(
+            parser.parse_args(required + ["--log", "C:\\logs"]).log,
+            "C:\\logs",
+        )
+        self.assertEqual(parser.parse_args(required + ["--logdebug"]).logdebug, ".")
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(required + ["--log", "--logdebug"])
+
 
 if __name__ == "__main__":
     unittest.main()

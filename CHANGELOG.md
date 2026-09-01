@@ -2,6 +2,9 @@
 
 ## 1.0.0
 
+- added `--log [DIRECTORY]` and `--logdebug [DIRECTORY]` with automatic
+  date/MCC/MNC/LA filenames after the first decoded cell identity;
+
 - kept channel and matched-filter taps and state in float32/complex64 to
   reduce memory bandwidth and temporary allocation pressure;
 - rate-limited Gardner energy-percentile updates to a bounded sample window,

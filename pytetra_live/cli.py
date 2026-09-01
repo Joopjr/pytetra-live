@@ -2,10 +2,12 @@
 
 import argparse
 import logging
+from pathlib import Path
 import signal
 
 from . import __version__
 from .bridge import PyTetraUnavailable
+from .logfiles import CellLogHandler
 from .receiver import LiveReceiver
 
 
@@ -53,6 +55,21 @@ def build_argument_parser():
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--duration", type=float, help="optional run duration in seconds")
     parser.add_argument("--debug", action="store_true", help="enable DSP and complete PyTetra diagnostics")
+    log_group = parser.add_mutually_exclusive_group()
+    log_group.add_argument(
+        "--log",
+        nargs="?",
+        const=".",
+        metavar="DIRECTORY",
+        help="write normal output to an optional directory (default: current directory)",
+    )
+    log_group.add_argument(
+        "--logdebug",
+        nargs="?",
+        const=".",
+        metavar="DIRECTORY",
+        help="write full debug output to an optional directory (default: current directory)",
+    )
     parser.add_argument("--version", action="version", version=__version__)
     return parser
 
@@ -64,10 +81,20 @@ def main(argv=None):
         value = getattr(arguments, name)
         if value is not None and value <= 0:
             parser.error("--%s must be positive" % name.replace("_", "-"))
-    logging.basicConfig(
-        level=logging.DEBUG if arguments.debug else logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
+    debug = bool(arguments.debug or arguments.logdebug is not None)
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    console = logging.StreamHandler()
+    console.setLevel(logging.DEBUG if arguments.debug else logging.INFO)
+    console.setFormatter(formatter)
+    handlers = [console]
+    log_directory = arguments.logdebug if arguments.logdebug is not None else arguments.log
+    if log_directory is not None:
+        file_handler = CellLogHandler(
+            Path(log_directory), debug=arguments.logdebug is not None
+        )
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO, handlers=handlers)
     try:
         receiver = LiveReceiver(
             host=arguments.host,
@@ -76,7 +103,7 @@ def main(argv=None):
             center_frequency=arguments.center_frequency,
             gain=arguments.gain,
             sample_rate=arguments.sample_rate,
-            debug=arguments.debug,
+            debug=debug,
             decode=not arguments.no_decode,
             bits_output=arguments.bits_output,
             iq_output=arguments.iq_output,

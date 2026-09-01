@@ -132,6 +132,12 @@ batch. Decoded Layer-2 and Layer-3 records use the `PYTETRA` log label;
 SpyServer, DSP, performance, signal-quality, and lifecycle messages retain the
 normal `INFO` label.
 
+Use `--log` to save the normal output in the current directory. Use
+`--log DIRECTORY` to select another directory. The file is named after the
+first decoded cell, for example `2026-09-01 MCC204 MNC1000 LA2333.log`.
+`--logdebug [DIRECTORY]` records the complete debug stream instead and adds
+` debug` to the filename. The two file options are mutually exclusive.
+
 Software amplitude gain is unnecessary: carrier estimation, timing recovery,
 and differential decisions already normalize amplitude. Multiplying samples
 would amplify noise by the same factor and cannot improve SNR. RF gain remains
@@ -200,6 +206,8 @@ I0 Q0 I1 Q1 ...
 | `--iq-output PATH` | Append normalized float32 IQ |
 | `--no-decode` | Do not import or feed PyTetra |
 | `--debug` | Show DSP state and complete PyTetra diagnostics |
+| `--log [DIRECTORY]` | Save normal output using an automatic cell filename |
+| `--logdebug [DIRECTORY]` | Save complete debug output using a cell filename |
 | `--no-reconnect` | Stop on network failure |
 | `--reconnect-delay SEC` | Delay between connection attempts |
 | `--duration SEC` | Stop after a bounded test run |
