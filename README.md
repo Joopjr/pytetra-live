@@ -137,6 +137,7 @@ Use `--log` to save the normal output in the current directory. Use
 first decoded cell, for example `2026-09-01 MCC204 MNC1000 LA2333.log`.
 `--logdebug [DIRECTORY]` records the complete debug stream instead and adds
 ` debug` to the filename. The two file options are mutually exclusive.
+Long-running logs automatically rotate to a new dated file at local midnight.
 
 Software amplitude gain is unnecessary: carrier estimation, timing recovery,
 and differential decisions already normalize amplitude. Multiplying samples

@@ -2,6 +2,8 @@
 
 ## 1.0.0
 
+- rotated long-running automatic log files at local midnight while retaining
+  the detected MCC, MNC and LA in each new daily filename;
 - added `--log [DIRECTORY]` and `--logdebug [DIRECTORY]` with automatic
   date/MCC/MNC/LA filenames after the first decoded cell identity;
 

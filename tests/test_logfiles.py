@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 from pathlib import Path
 import tempfile
@@ -42,6 +43,34 @@ class CellLogHandlerTestCase(unittest.TestCase):
             files = list(Path(directory).glob("* debug.log"))
             self.assertEqual(len(files), 1)
             self.assertIn("DEBUG", files[0].read_text(encoding="utf-8"))
+
+    def test_long_running_log_rotates_at_local_midnight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handler = CellLogHandler(directory)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+
+            before_midnight = logging.LogRecord(
+                "test", logging.INFO, __file__, 1,
+                "DL; MCC(204), MNC(1000), LA(2333); before midnight", (), None,
+            )
+            before_midnight.created = datetime(2026, 9, 1, 23, 59, 59).timestamp()
+            after_midnight = logging.LogRecord(
+                "test", logging.INFO, __file__, 1,
+                "after midnight", (), None,
+            )
+            after_midnight.created = datetime(2026, 9, 2, 0, 0, 1).timestamp()
+
+            handler.emit(before_midnight)
+            handler.emit(after_midnight)
+            handler.close()
+
+            first = Path(directory) / "2026-09-01 MCC204 MNC1000 LA2333.log"
+            second = Path(directory) / "2026-09-02 MCC204 MNC1000 LA2333.log"
+            self.assertTrue(first.exists())
+            self.assertTrue(second.exists())
+            self.assertIn("before midnight", first.read_text(encoding="utf-8"))
+            self.assertNotIn("after midnight", first.read_text(encoding="utf-8"))
+            self.assertIn("after midnight", second.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
