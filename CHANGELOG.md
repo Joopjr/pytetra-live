@@ -2,6 +2,10 @@
 
 ## 1.0.0
 
+- replaced remaining real network identifiers in documentation and tests with
+  consistent synthetic values and moved example frequencies to 41x MHz;
+- synchronized the manual option reference with every supported CLI argument
+  and corrected the configurable telemetry description;
 - automatically reopened an active log when its file was deleted, moved or
   replaced externally;
 - added `--show-esi` for opt-in compact encrypted-identity records;

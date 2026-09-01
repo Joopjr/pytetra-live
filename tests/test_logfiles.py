@@ -19,16 +19,16 @@ class CellLogHandlerTestCase(unittest.TestCase):
 
             logger.info("SpyServer connected")
             logger.info(
-                "DL; MCC(204), MNC(1000), LA(2333); Layer 2 - MAC(Example)"
+                "DL; MCC(204), MNC(9999), LA(42); Layer 2 - MAC(Example)"
             )
             handler.close()
 
             files = list(Path(directory).glob("*.log"))
             self.assertEqual(len(files), 1)
-            self.assertRegex(files[0].name, r"^\d{4}-\d{2}-\d{2} MCC204 MNC1000 LA2333\.log$")
+            self.assertRegex(files[0].name, r"^\d{4}-\d{2}-\d{2} MCC204 MNC9999 LA42\.log$")
             contents = files[0].read_text(encoding="utf-8")
             self.assertIn("SpyServer connected", contents)
-            self.assertIn("MCC(204), MNC(1000), LA(2333)", contents)
+            self.assertIn("MCC(204), MNC(9999), LA(42)", contents)
 
     def test_debug_filename_and_level(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -36,7 +36,7 @@ class CellLogHandlerTestCase(unittest.TestCase):
             handler.setFormatter(logging.Formatter("%(levelname)s | %(message)s"))
             record = logging.LogRecord(
                 "test", logging.DEBUG, __file__, 1,
-                "MCC(204), MNC(1000), LA(2333)", (), None,
+                "MCC(204), MNC(9999), LA(42)", (), None,
             )
             handler.emit(record)
             handler.close()
@@ -51,7 +51,7 @@ class CellLogHandlerTestCase(unittest.TestCase):
 
             before_midnight = logging.LogRecord(
                 "test", logging.INFO, __file__, 1,
-                "DL; MCC(204), MNC(1000), LA(2333); before midnight", (), None,
+                "DL; MCC(204), MNC(9999), LA(42); before midnight", (), None,
             )
             before_midnight.created = datetime(2026, 9, 1, 23, 59, 59).timestamp()
             after_midnight = logging.LogRecord(
@@ -64,8 +64,8 @@ class CellLogHandlerTestCase(unittest.TestCase):
             handler.emit(after_midnight)
             handler.close()
 
-            first = Path(directory) / "2026-09-01 MCC204 MNC1000 LA2333.log"
-            second = Path(directory) / "2026-09-02 MCC204 MNC1000 LA2333.log"
+            first = Path(directory) / "2026-09-01 MCC204 MNC9999 LA42.log"
+            second = Path(directory) / "2026-09-02 MCC204 MNC9999 LA42.log"
             self.assertTrue(first.exists())
             self.assertTrue(second.exists())
             self.assertIn("before midnight", first.read_text(encoding="utf-8"))
@@ -78,7 +78,7 @@ class CellLogHandlerTestCase(unittest.TestCase):
             handler.setFormatter(logging.Formatter("%(message)s"))
             first = logging.LogRecord(
                 "test", logging.INFO, __file__, 1,
-                "DL; MCC(204), MNC(1000), LA(2333); first", (), None,
+                "DL; MCC(204), MNC(9999), LA(42); first", (), None,
             )
             second = logging.LogRecord(
                 "test", logging.INFO, __file__, 1, "second", (), None,
@@ -99,7 +99,7 @@ class CellLogHandlerTestCase(unittest.TestCase):
             handler.setFormatter(logging.Formatter("%(message)s"))
             first = logging.LogRecord(
                 "test", logging.INFO, __file__, 1,
-                "DL; MCC(204), MNC(1000), LA(2333); first", (), None,
+                "DL; MCC(204), MNC(9999), LA(42); first", (), None,
             )
             second = logging.LogRecord(
                 "test", logging.INFO, __file__, 1, "second", (), None,

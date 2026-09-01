@@ -14,11 +14,11 @@ class ProtocolTestCase(unittest.TestCase):
         self.assertEqual(packet[12:], b"test")
 
     def test_setting_is_little_endian(self):
-        packet = protocol.setting(protocol.SETTING_IQ_FREQUENCY, 392475000)
+        packet = protocol.setting(protocol.SETTING_IQ_FREQUENCY, 412475000)
         self.assertEqual(protocol.COMMAND_HEADER.unpack_from(packet), (2, 8))
         self.assertEqual(
             protocol.SETTING_BODY.unpack_from(packet, protocol.COMMAND_HEADER.size),
-            (protocol.SETTING_IQ_FREQUENCY, 392475000),
+            (protocol.SETTING_IQ_FREQUENCY, 412475000),
         )
 
     def test_oversized_message_is_rejected(self):

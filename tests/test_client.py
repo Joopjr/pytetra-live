@@ -55,8 +55,8 @@ class FakeSpyServer(threading.Thread):
                     24000000, 1800000000, 12, 4, 0,
                 )
                 sync = protocol.CLIENT_SYNC_BODY.pack(
-                    1, 18, 392475000, 392475000, 392475000,
-                    391975000, 392975000, 391975000, 392975000,
+                    1, 18, 412475000, 412475000, 412475000,
+                    411975000, 412975000, 411975000, 412975000,
                 )
                 first = message(protocol.MSG_DEVICE_INFO, 0, 0, device)
                 second = message(protocol.MSG_CLIENT_SYNC, 0, 1, sync)
@@ -94,8 +94,8 @@ class ClientTestCase(unittest.TestCase):
     def test_connect_configure_and_receive_int16(self):
         host, port = self.listener.getsockname()
         client = SpyServerClient(host, port, timeout=2).connect()
-        configuration = client.configure(392475000)
-        self.assertEqual(configuration.iq_center_frequency, 392475000)
+        configuration = client.configure(412475000)
+        self.assertEqual(configuration.iq_center_frequency, 412475000)
         self.assertEqual(configuration.sample_rate, 156250.0)
         self.assertEqual(configuration.gain, 18)
         client.start()
@@ -113,7 +113,7 @@ class ClientTestCase(unittest.TestCase):
             if command_type == protocol.CMD_SET_SETTING
         ]
         self.assertIn((protocol.SETTING_IQ_DECIMATION, 6), settings)
-        self.assertIn((protocol.SETTING_IQ_FREQUENCY, 392475000), settings)
+        self.assertIn((protocol.SETTING_IQ_FREQUENCY, 412475000), settings)
         self.assertNotIn((protocol.SETTING_GAIN, 18), settings)
 
     def test_iq_format_decoders(self):
@@ -134,19 +134,19 @@ class ClientTestCase(unittest.TestCase):
             24000000, 1800000000, 12, 0, 0,
         )
         client.client_sync = protocol.ClientSync(
-            False, 18, 392475000, 392475000, 392475000,
-            390075000, 394875000, 390075000, 394875000,
+            False, 18, 412475000, 412475000, 412475000,
+            410075000, 414875000, 410075000, 414875000,
         )
         settings = []
         client.set_setting = lambda setting, value: settings.append((setting, value))
 
-        configuration = client.configure(393462500)
+        configuration = client.configure(413462500)
 
-        self.assertEqual(configuration.iq_center_frequency, 393462500)
+        self.assertEqual(configuration.iq_center_frequency, 413462500)
         self.assertEqual(configuration.decimation, 6)
         self.assertEqual(configuration.sample_rate, 93750.0)
         self.assertIn((protocol.SETTING_IQ_DECIMATION, 6), settings)
-        self.assertIn((protocol.SETTING_IQ_FREQUENCY, 393462500), settings)
+        self.assertIn((protocol.SETTING_IQ_FREQUENCY, 413462500), settings)
 
     def test_locked_device_falls_back_to_wide_local_tuning(self):
         client = SpyServerClient("unused", 5556)
@@ -155,15 +155,15 @@ class ClientTestCase(unittest.TestCase):
             24000000, 1800000000, 12, 0, 0,
         )
         client.client_sync = protocol.ClientSync(
-            False, 18, 392475000, 392475000, 392475000,
-            392000000, 393000000, 392000000, 393000000,
+            False, 18, 412475000, 412475000, 412475000,
+            412000000, 413000000, 412000000, 413000000,
         )
         settings = []
         client.set_setting = lambda setting, value: settings.append((setting, value))
 
-        configuration = client.configure(393462500)
+        configuration = client.configure(413462500)
 
-        self.assertEqual(configuration.iq_center_frequency, 392475000)
+        self.assertEqual(configuration.iq_center_frequency, 412475000)
         self.assertEqual(configuration.decimation, 1)
         self.assertEqual(configuration.sample_rate, 3000000.0)
         self.assertIn((protocol.SETTING_IQ_DECIMATION, 1), settings)

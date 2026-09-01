@@ -13,11 +13,11 @@ class CliTestCase(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 parser.parse_args([])
         args = parser.parse_args(
-            ["--host", "127.0.0.1", "--port", "5556", "--frequency", "392475000"]
+            ["--host", "127.0.0.1", "--port", "5556", "--frequency", "412475000"]
         )
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 5556)
-        self.assertEqual(args.frequency, 392475000)
+        self.assertEqual(args.frequency, 412475000)
         self.assertIsNone(args.gain)
         self.assertIsNone(args.center_frequency)
         self.assertFalse(args.show_esi)

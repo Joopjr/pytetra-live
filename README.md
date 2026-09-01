@@ -85,7 +85,7 @@ Example for the supplied server scenario:
 pytetra-live \
     --host 127.0.0.1 \
     --port 5556 \
-    --frequency 392475000
+    --frequency 412475000
 ```
 
 ## Server settings and precedence
@@ -139,7 +139,8 @@ run without requiring an option.
 
 Use `--log` to save the normal output in the current directory. Use
 `--log DIRECTORY` to select another directory. The file is named after the
-first decoded cell, for example `2026-09-01 MCC204 MNC1000 LA2333.log`.
+first decoded cell, for example `2026-09-01 MCC204 MNC9999 LA42.log`. All
+identities and location-area values in the documentation are synthetic.
 `--logdebug [DIRECTORY]` records the complete debug stream instead and adds
 ` debug` to the filename. The two file options are mutually exclusive.
 Long-running logs automatically rotate to a new dated file at local midnight.
@@ -151,14 +152,14 @@ and differential decisions already normalize amplitude. Multiplying samples
 would amplify noise by the same factor and cannot improve SNR. RF gain remains
 the useful control for weak signals.
 
-Every 30 seconds, a `Signal quality` line reports the pre-normalization input
-level in dBFS, an adjacent-band SNR estimate, carrier coherence and residual
-frequency, RMS phase and timing errors, recovered samples per symbol, timing
-drift in ppm, interval burst-success percentage, average interval
-training-sequence errors, and current lock state. These are relative receiver
-diagnostics rather than calibrated dBm measurements. Compare readings with the
-same receiver gain and SpyServer IQ format. The SNR estimate can be distorted
-when another transmission occupies either adjacent noise-reference band.
+When `--show-telemetry [INTERVAL]` is enabled, each `Signal quality` line
+reports the pre-normalization input level in dBFS, an adjacent-band SNR
+estimate, carrier coherence and residual frequency, RMS phase and timing
+errors, recovered samples per symbol, timing drift in ppm, interval
+burst-success percentage, average interval training-sequence errors, and the
+current lock state. The default interval is 30 seconds. These are relative
+receiver diagnostics rather than calibrated dBm measurements; compare them
+with the same receiver gain and IQ format.
 
 Explicit center and gain:
 
@@ -166,8 +167,8 @@ Explicit center and gain:
 pytetra-live \
     --host 192.168.1.20 \
     --port 5556 \
-    --frequency 392475000 \
-    --center-frequency 392500000 \
+    --frequency 412475000 \
+    --center-frequency 412500000 \
     --gain 18
 ```
 
@@ -182,7 +183,7 @@ Write validated unpacked bursts while decoding live:
 pytetra-live \
     --host 127.0.0.1 \
     --port 5556 \
-    --frequency 392475000 \
+    --frequency 412475000 \
     --bits-output live.bits
 ```
 
@@ -192,7 +193,7 @@ Write normalized IQ as interleaved little-endian float32 values:
 pytetra-live \
     --host 127.0.0.1 \
     --port 5556 \
-    --frequency 392475000 \
+    --frequency 412475000 \
     --iq-output live.cf32 \
     --no-decode
 ```
@@ -207,6 +208,10 @@ I0 Q0 I1 Q1 ...
 
 | Option | Behavior |
 |---|---|
+| `-h`, `--help` | Show the command-line help and exit |
+| `--host HOST` | Connect to this SpyServer hostname or IP address; required |
+| `--port PORT` | Connect to this SpyServer TCP port; required |
+| `--frequency HZ` | Tune to this TETRA downlink channel; required |
 | `--center-frequency HZ` | Request an explicit IQ center |
 | `--gain INDEX` | Request a device gain index |
 | `--sample-rate HZ` | Request at least this IQ sample rate |
@@ -220,7 +225,9 @@ I0 Q0 I1 Q1 ...
 | `--logdebug [DIRECTORY]` | Save complete debug output using a cell filename |
 | `--no-reconnect` | Stop on network failure |
 | `--reconnect-delay SEC` | Delay between connection attempts |
+| `--timeout SEC` | Set the SpyServer socket timeout; default `5` seconds |
 | `--duration SEC` | Stop after a bounded test run |
+| `--version` | Show the PyTetra-Live version and exit |
 
 ## SpyServer protocol subset
 

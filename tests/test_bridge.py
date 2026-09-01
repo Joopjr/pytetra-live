@@ -144,7 +144,7 @@ class QueuedBridgeTestCase(unittest.TestCase):
 
     def test_security_context_uses_info_level(self):
         message = (
-            "SecurityContext(MCC(204), MNC(1000), LA(2333), CCKId(77), "
+            "SecurityContext(MCC(204), MNC(9999), LA(42), CCKId(5), "
             "EncryptionModeParity(odd))"
         )
         with patch("pytetra_live.bridge.LOG.log") as protocol, patch(

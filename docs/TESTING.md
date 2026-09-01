@@ -11,7 +11,7 @@ Start with PyTetra delivery disabled:
 pytetra-live \
     --host 127.0.0.1 \
     --port 5556 \
-    --frequency 392475000 \
+    --frequency 412475000 \
     --duration 15 \
     --no-decode \
     --iq-output first-test.cf32 \
@@ -43,7 +43,7 @@ After the sibling PyTetra project is installed:
 pytetra-live \
     --host 127.0.0.1 \
     --port 5556 \
-    --frequency 392475000 \
+    --frequency 412475000 \
     --duration 30
 ```
 
@@ -59,8 +59,8 @@ When the TETRA channel is not at the current SpyServer IQ center:
 pytetra-live \
     --host 127.0.0.1 \
     --port 5556 \
-    --center-frequency 392500000 \
-    --frequency 392475000 \
+    --center-frequency 412500000 \
+    --frequency 412475000 \
     --duration 30
 ```
 
