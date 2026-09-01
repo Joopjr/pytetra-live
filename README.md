@@ -122,14 +122,28 @@ when their normal TETRA CRC succeeds; failed blocks remain discarded. The
 compatible `.bits` output intentionally remains hard-decision data.
 
 PyTetra decoding runs in a separate ordered worker queue so convolutional and
-protocol decoding cannot stall IQ reception. With `--show-telemetry`, the log
-reports every 30 seconds the DSP real-time factor, IQ depth, queued decoder
-batches and bursts, decoder overruns, discarded bursts, signal quality, and
-the time share of the resampler, filter, carrier, timing, and framing stages.
-An optional interval accepts seconds, minutes, or hours, for example
-`--show-telemetry 45s`, `--show-telemetry 5m`, or `--show-telemetry 2h`. A
-number without a suffix is interpreted as seconds. Debug mode includes this
-telemetry every 30 seconds unless another interval is explicitly selected.
+protocol decoding cannot stall IQ reception.
+
+Software amplitude gain is unnecessary: carrier estimation, timing recovery,
+and differential decisions already normalize amplitude. Multiplying samples
+would amplify noise by the same factor and cannot improve SNR. RF gain remains
+the useful control for weak signals.
+
+Explicit center and gain:
+
+```bash
+pytetra-live \
+    --host 192.168.1.20 \
+    --port 5556 \
+    --frequency 412475000 \
+    --center-frequency 412500000 \
+    --gain 18
+```
+
+If SpyServer reports that device control is locked, requested device settings
+are not forced. The current server values are retained and logged.
+
+## Logging
 
 Bursts produced by one DSP block are transferred to the decoder as one ordered
 batch. Decoded Layer-2 and Layer-3 records use the `PYTETRA` log label;
@@ -147,10 +161,7 @@ Long-running logs automatically rotate to a new dated file at local midnight.
 If an active log is deleted, moved or replaced externally, PyTetra-live detects
 this before the next record and safely reopens the expected log path.
 
-Software amplitude gain is unnecessary: carrier estimation, timing recovery,
-and differential decisions already normalize amplitude. Multiplying samples
-would amplify noise by the same factor and cannot improve SNR. RF gain remains
-the useful control for weak signals.
+## Telemetry
 
 When `--show-telemetry [INTERVAL]` is enabled, each `Signal quality` line
 reports the pre-normalization input level in dBFS, an adjacent-band SNR
@@ -159,21 +170,10 @@ errors, recovered samples per symbol, timing drift in ppm, interval
 burst-success percentage, average interval training-sequence errors, and the
 current lock state. The default interval is 30 seconds. These are relative
 receiver diagnostics rather than calibrated dBm measurements; compare them
-with the same receiver gain and IQ format.
-
-Explicit center and gain:
-
-```bash
-pytetra-live \
-    --host 192.168.1.20 \
-    --port 5556 \
-    --frequency 412475000 \
-    --center-frequency 412500000 \
-    --gain 18
-```
-
-If SpyServer reports that device control is locked, requested device settings
-are not forced. The current server values are retained and logged.
+with the same receiver gain and IQ format. The interval accepts seconds,
+minutes, or hours, for example `45s`, `5m`, or `2h`; a number without a suffix
+means seconds. Debug mode enables telemetry every 30 seconds unless another
+interval is explicitly selected.
 
 ## Recording
 

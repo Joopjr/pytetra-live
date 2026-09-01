@@ -2,6 +2,8 @@
 
 ## 1.0.0
 
+- consolidated duplicate telemetry guidance into one dedicated manual section
+  and aligned the documentation structure with PyTetra;
 - replaced remaining real network identifiers in documentation and tests with
   consistent synthetic values and moved example frequencies to 41x MHz;
 - synchronized the manual option reference with every supported CLI argument
