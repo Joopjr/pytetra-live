@@ -2,6 +2,8 @@
 
 ## 1.0.0
 
+- added `--show-esi` for opt-in compact encrypted-identity records and
+  `--show-security-context` for INFO-level MCC/MNC/LA/CCK context changes;
 - rotated long-running automatic log files at local midnight while retaining
   the detected MCC, MNC and LA in each new daily filename;
 - added `--log [DIRECTORY]` and `--logdebug [DIRECTORY]` with automatic

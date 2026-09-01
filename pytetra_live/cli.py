@@ -55,6 +55,16 @@ def build_argument_parser():
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--duration", type=float, help="optional run duration in seconds")
     parser.add_argument("--debug", action="store_true", help="enable DSP and complete PyTetra diagnostics")
+    parser.add_argument(
+        "--show-esi",
+        action="store_true",
+        help="include encryption-mode 2/3 ESI records in compact output",
+    )
+    parser.add_argument(
+        "--show-security-context",
+        action="store_true",
+        help="log MCC/MNC/LA/CCK context changes at INFO level",
+    )
     log_group = parser.add_mutually_exclusive_group()
     log_group.add_argument(
         "--log",
@@ -81,6 +91,12 @@ def main(argv=None):
         value = getattr(arguments, name)
         if value is not None and value <= 0:
             parser.error("--%s must be positive" % name.replace("_", "-"))
+    if arguments.no_decode and (
+        arguments.show_esi or arguments.show_security_context
+    ):
+        parser.error(
+            "--show-esi and --show-security-context require PyTetra decoding"
+        )
     debug = bool(arguments.debug or arguments.logdebug is not None)
     formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     console = logging.StreamHandler()
@@ -104,6 +120,8 @@ def main(argv=None):
             gain=arguments.gain,
             sample_rate=arguments.sample_rate,
             debug=debug,
+            show_esi=arguments.show_esi,
+            show_security_context=arguments.show_security_context,
             decode=not arguments.no_decode,
             bits_output=arguments.bits_output,
             iq_output=arguments.iq_output,

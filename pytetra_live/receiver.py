@@ -42,6 +42,8 @@ class LiveReceiver:
         gain=None,
         sample_rate=None,
         debug=False,
+        show_esi=False,
+        show_security_context=False,
         decode=True,
         bits_output=None,
         iq_output=None,
@@ -56,7 +58,15 @@ class LiveReceiver:
         self.gain = gain
         self.sample_rate = sample_rate
         self.debug = bool(debug)
-        self.bridge = QueuedPyTetraBridge(debug=debug) if decode else None
+        self.bridge = (
+            QueuedPyTetraBridge(
+                debug=debug,
+                show_esi=show_esi,
+                show_security_context=show_security_context,
+            )
+            if decode
+            else None
+        )
         self.bits = BitFileSink(bits_output)
         self.iq = IqFileSink(iq_output)
         self.reconnect = bool(reconnect)

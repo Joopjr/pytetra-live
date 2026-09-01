@@ -207,6 +207,8 @@ I0 Q0 I1 Q1 ...
 | `--iq-output PATH` | Append normalized float32 IQ |
 | `--no-decode` | Do not import or feed PyTetra |
 | `--debug` | Show DSP state and complete PyTetra diagnostics |
+| `--show-esi` | Include mode-2/3 ESI records in compact decoded output |
+| `--show-security-context` | Log MCC/MNC/LA/CCK context changes at INFO level |
 | `--log [DIRECTORY]` | Save normal output using an automatic cell filename |
 | `--logdebug [DIRECTORY]` | Save complete debug output using a cell filename |
 | `--no-reconnect` | Stop on network failure |

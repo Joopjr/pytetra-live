@@ -46,9 +46,17 @@ class PyTetraUnavailable(RuntimeError):
 
 
 class PyTetraBridge:
-    def __init__(self, debug=False, line_writer=None):
+    def __init__(
+        self,
+        debug=False,
+        line_writer=None,
+        show_esi=False,
+        show_security_context=False,
+    ):
         self.debug = bool(debug)
         self.line_writer = line_writer
+        self.show_esi = bool(show_esi)
+        self.show_security_context = bool(show_security_context)
         self.stack = None
         self.resets = 0
         self._create_stack()
@@ -69,7 +77,12 @@ class PyTetraBridge:
         Logger.set_writer(
             self.line_writer or log_pytetra_output
         )
-        self.stack = TetraStack(ConsoleUserLayer, debug=self.debug)
+        self.stack = TetraStack(
+            ConsoleUserLayer,
+            debug=self.debug,
+            show_esi=self.show_esi,
+            show_security_context=self.show_security_context,
+        )
 
     def reset(self):
         self.resets += 1
@@ -103,12 +116,25 @@ def _change_counter(counter, delta):
         counter.value = max(0, counter.value + int(delta))
 
 
-def _decoder_process(events, output, errors, queued_bursts, debug):
+def _decoder_process(
+    events,
+    output,
+    errors,
+    queued_bursts,
+    debug,
+    show_esi,
+    show_security_context,
+):
     """Run stateful PyTetra decoding outside the DSP interpreter process."""
     try:
         # The parent owns terminal signals and requests an ordered shutdown.
         signal.signal(signal.SIGINT, signal.SIG_IGN)
-        bridge = PyTetraBridge(debug=debug, line_writer=output.put)
+        bridge = PyTetraBridge(
+            debug=debug,
+            line_writer=output.put,
+            show_esi=show_esi,
+            show_security_context=show_security_context,
+        )
         while True:
             event = events.get()
             _change_counter(queued_bursts, -_event_burst_count(event))
@@ -152,7 +178,14 @@ def _decoder_process(events, output, errors, queued_bursts, debug):
 class QueuedPyTetraBridge:
     """Decode PyTetra in a separate process without blocking real-time DSP."""
 
-    def __init__(self, debug=False, capacity=512, _worker_target=None):
+    def __init__(
+        self,
+        debug=False,
+        capacity=512,
+        show_esi=False,
+        show_security_context=False,
+        _worker_target=None,
+    ):
         context = multiprocessing.get_context("spawn")
         self.events = context.Queue(maxsize=max(4, int(capacity)))
         # Output is intentionally unbounded: terminal I/O must never stall the
@@ -166,7 +199,15 @@ class QueuedPyTetraBridge:
         self._reset_pending = False
         self.worker = context.Process(
             target=_worker_target or _decoder_process,
-            args=(self.events, self.output, self.errors, self.queued_bursts, bool(debug)),
+            args=(
+                self.events,
+                self.output,
+                self.errors,
+                self.queued_bursts,
+                bool(debug),
+                bool(show_esi),
+                bool(show_security_context),
+            ),
             name="pytetra-decoder",
             daemon=True,
         )

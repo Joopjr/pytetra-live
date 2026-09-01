@@ -15,7 +15,15 @@ from pytetra_live.bridge import (
 )
 
 
-def recording_decoder_process(events, output, errors, queued_bursts, debug):
+def recording_decoder_process(
+    events,
+    output,
+    errors,
+    queued_bursts,
+    debug,
+    show_esi,
+    show_security_context,
+):
     """Picklable CI worker that verifies ordering and serialized payloads."""
     received = []
     while True:
@@ -49,9 +57,17 @@ class QueuedBridgeTestCase(unittest.TestCase):
                 cls.writer = writer
 
         class FakeStack:
-            def __init__(self, user_layer, debug=False):
+            def __init__(
+                self,
+                user_layer,
+                debug=False,
+                show_esi=False,
+                show_security_context=False,
+            ):
                 self.user_layer = user_layer
                 self.debug = debug
+                self.show_esi = show_esi
+                self.show_security_context = show_security_context
 
         fake_cli = types.ModuleType("pytetra.cli")
         fake_cli.ConsoleUserLayer = object
@@ -78,6 +94,40 @@ class QueuedBridgeTestCase(unittest.TestCase):
             "DL; Layer 2 - MAC(MacResourcePdu)",
         )
 
+    def test_bridge_forwards_optional_pytetra_output_flags(self):
+        class FakeLogger:
+            @classmethod
+            def set_writer(cls, unused_writer):
+                pass
+
+        created = []
+
+        class FakeStack:
+            def __init__(self, unused_user_layer, **options):
+                created.append(options)
+
+        fake_cli = types.ModuleType("pytetra.cli")
+        fake_cli.ConsoleUserLayer = object
+        fake_logger = types.ModuleType("pytetra.logger")
+        fake_logger.Logger = FakeLogger
+        fake_stack = types.ModuleType("pytetra.stack")
+        fake_stack.TetraStack = FakeStack
+        modules = {
+            "pytetra": types.ModuleType("pytetra"),
+            "pytetra.cli": fake_cli,
+            "pytetra.logger": fake_logger,
+            "pytetra.stack": fake_stack,
+        }
+
+        with patch.dict(sys.modules, modules):
+            PyTetraBridge(show_esi=True, show_security_context=True)
+
+        self.assertEqual(created, [{
+            "debug": False,
+            "show_esi": True,
+            "show_security_context": True,
+        }])
+
     def test_only_compact_layer2_and_layer3_use_pytetra_level(self):
         with patch("pytetra_live.bridge.LOG.log") as protocol, patch(
             "pytetra_live.bridge.LOG.info"
@@ -95,6 +145,19 @@ class QueuedBridgeTestCase(unittest.TestCase):
         )
         info.assert_called_once_with("%s", "TETRA burst lock acquired")
         self.assertEqual(logging.getLevelName(PYTETRA_LEVEL), "PYTETRA")
+
+    def test_security_context_uses_info_level(self):
+        message = (
+            "SecurityContext(MCC(204), MNC(1000), LA(2333), CCKId(77), "
+            "EncryptionModeParity(odd))"
+        )
+        with patch("pytetra_live.bridge.LOG.log") as protocol, patch(
+            "pytetra_live.bridge.LOG.info"
+        ) as info:
+            log_pytetra_output(message)
+
+        protocol.assert_not_called()
+        info.assert_called_once_with("%s", message)
 
     def test_queue_overrun_cannot_escape_as_queue_full(self):
         bridge = object.__new__(QueuedPyTetraBridge)
