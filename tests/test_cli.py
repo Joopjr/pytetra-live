@@ -1,8 +1,9 @@
 import unittest
+import argparse
 import contextlib
 import io
 
-from pytetra_live.cli import build_argument_parser
+from pytetra_live.cli import build_argument_parser, telemetry_interval
 
 
 class CliTestCase(unittest.TestCase):
@@ -20,7 +21,7 @@ class CliTestCase(unittest.TestCase):
         self.assertIsNone(args.gain)
         self.assertIsNone(args.center_frequency)
         self.assertFalse(args.show_esi)
-        self.assertFalse(args.show_telemetry)
+        self.assertIsNone(args.show_telemetry)
 
     def test_optional_protocol_output_arguments(self):
         parser = build_argument_parser()
@@ -29,7 +30,20 @@ class CliTestCase(unittest.TestCase):
             required + ["--show-esi", "--show-telemetry"]
         )
         self.assertTrue(args.show_esi)
-        self.assertTrue(args.show_telemetry)
+        self.assertEqual(args.show_telemetry, 30.0)
+
+    def test_telemetry_interval_units(self):
+        self.assertEqual(telemetry_interval("45"), 45.0)
+        self.assertEqual(telemetry_interval("45s"), 45.0)
+        self.assertEqual(telemetry_interval("5m"), 300.0)
+        self.assertEqual(telemetry_interval("2h"), 7200.0)
+        self.assertEqual(telemetry_interval("1.5m"), 90.0)
+
+    def test_telemetry_interval_rejects_invalid_values(self):
+        for value in ("0", "-1", "5d", "seconds", ""):
+            with self.subTest(value=value):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    telemetry_interval(value)
 
     def test_log_arguments_accept_no_value_or_directory(self):
         parser = build_argument_parser()

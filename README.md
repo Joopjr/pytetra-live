@@ -126,7 +126,10 @@ protocol decoding cannot stall IQ reception. With `--show-telemetry`, the log
 reports every 30 seconds the DSP real-time factor, IQ depth, queued decoder
 batches and bursts, decoder overruns, discarded bursts, signal quality, and
 the time share of the resampler, filter, carrier, timing, and framing stages.
-Debug mode includes this telemetry automatically.
+An optional interval accepts seconds, minutes, or hours, for example
+`--show-telemetry 45s`, `--show-telemetry 5m`, or `--show-telemetry 2h`. A
+number without a suffix is interpreted as seconds. Debug mode includes this
+telemetry every 30 seconds unless another interval is explicitly selected.
 
 Bursts produced by one DSP block are transferred to the decoder as one ordered
 batch. Decoded Layer-2 and Layer-3 records use the `PYTETRA` log label;
@@ -212,7 +215,7 @@ I0 Q0 I1 Q1 ...
 | `--no-decode` | Do not import or feed PyTetra |
 | `--debug` | Show DSP state and complete PyTetra diagnostics |
 | `--show-esi` | Include mode-2/3 ESI records in compact decoded output |
-| `--show-telemetry` | Periodically log DSP performance and signal quality |
+| `--show-telemetry [INTERVAL]` | Log DSP performance and signal quality; default `30s`, suffix `s`, `m`, or `h` |
 | `--log [DIRECTORY]` | Save normal output using an automatic cell filename |
 | `--logdebug [DIRECTORY]` | Save complete debug output using a cell filename |
 | `--no-reconnect` | Stop on network failure |

@@ -6,7 +6,8 @@
   replaced externally;
 - added `--show-esi` for opt-in compact encrypted-identity records;
 - moved periodic performance and signal-quality records behind
-  `--show-telemetry`, while retaining them automatically in debug mode;
+  `--show-telemetry [INTERVAL]`, with optional second, minute, and hour units,
+  while retaining a 30-second default in debug mode;
 - made the first complete MCC/MNC/LA/CCK security context a standard INFO
   record without requiring an option;
 - rotated long-running automatic log files at local midnight while retaining

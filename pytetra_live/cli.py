@@ -3,6 +3,7 @@
 import argparse
 import logging
 from pathlib import Path
+import re
 import signal
 
 from . import __version__
@@ -23,6 +24,27 @@ def positive_frequency(value):
     if frequency <= 0:
         raise argparse.ArgumentTypeError("frequency must be positive")
     return frequency
+
+
+TELEMETRY_INTERVAL_PATTERN = re.compile(
+    r"^(?P<value>(?:\d+(?:\.\d*)?|\.\d+))(?P<unit>[smhSMH]?)$"
+)
+
+
+def telemetry_interval(value):
+    """Parse a positive telemetry interval with an optional s/m/h suffix."""
+    match = TELEMETRY_INTERVAL_PATTERN.fullmatch(str(value).strip())
+    if match is None:
+        raise argparse.ArgumentTypeError(
+            "telemetry interval must be a positive number followed by s, m, or h"
+        )
+    amount = float(match.group("value"))
+    if amount <= 0.0:
+        raise argparse.ArgumentTypeError("telemetry interval must be positive")
+    multiplier = {"": 1.0, "s": 1.0, "m": 60.0, "h": 3600.0}[
+        match.group("unit").lower()
+    ]
+    return amount * multiplier
 
 
 def build_argument_parser():
@@ -62,8 +84,14 @@ def build_argument_parser():
     )
     parser.add_argument(
         "--show-telemetry",
-        action="store_true",
-        help="periodically log DSP performance and signal quality",
+        nargs="?",
+        const=30.0,
+        type=telemetry_interval,
+        metavar="INTERVAL",
+        help=(
+            "periodically log DSP performance and signal quality; optional "
+            "interval accepts s, m, or h (default when omitted: 30s)"
+        ),
     )
     log_group = parser.add_mutually_exclusive_group()
     log_group.add_argument(

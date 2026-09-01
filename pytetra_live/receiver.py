@@ -58,7 +58,11 @@ class LiveReceiver:
         self.gain = gain
         self.sample_rate = sample_rate
         self.debug = bool(debug)
-        self.show_telemetry = bool(show_telemetry or debug)
+        self.telemetry_interval = (
+            float(show_telemetry)
+            if show_telemetry is not None
+            else (30.0 if debug else None)
+        )
         self.bridge = (
             QueuedPyTetraBridge(
                 debug=debug,
@@ -190,8 +194,8 @@ class LiveReceiver:
             observed_generation = generation[0]
             processed_discontinuities = 0
             next_performance_log = (
-                time.monotonic() + 30.0
-                if self.show_telemetry else float("inf")
+                time.monotonic() + self.telemetry_interval
+                if self.telemetry_interval is not None else float("inf")
             )
             previous_accepted = 0
             previous_rejected = 0
@@ -356,7 +360,7 @@ class LiveReceiver:
                         training_errors,
                         demodulator.framer.locked,
                     )
-                    next_performance_log = now + 30.0
+                    next_performance_log = now + self.telemetry_interval
             if reader_error:
                 raise reader_error[0]
             self.stats.sequence_gaps += client.sequence_gaps
