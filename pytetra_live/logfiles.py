@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import logging
+import os
 from pathlib import Path
 import re
 
@@ -50,6 +51,20 @@ class CellLogHandler(logging.Handler):
             self._file_handler.emit(buffered_record)
         self._buffer.clear()
 
+    def _active_file_is_missing_or_replaced(self):
+        """Return whether the pathname no longer names the open log file."""
+        if self._file_handler is None or self.path is None:
+            return False
+        try:
+            path_stat = self.path.stat()
+            stream_stat = os.fstat(self._file_handler.stream.fileno())
+        except (FileNotFoundError, OSError, ValueError):
+            return True
+        return (path_stat.st_dev, path_stat.st_ino) != (
+            stream_stat.st_dev,
+            stream_stat.st_ino,
+        )
+
     def emit(self, record):
         try:
             if self._file_handler is None:
@@ -63,6 +78,8 @@ class CellLogHandler(logging.Handler):
                     return
             record_date = datetime.fromtimestamp(record.created).date()
             if record_date != self._active_date:
+                self._open(record)
+            elif self._active_file_is_missing_or_replaced():
                 self._open(record)
             self._file_handler.emit(record)
         except Exception:

@@ -2,6 +2,8 @@
 
 ## 1.0.0
 
+- automatically reopened an active log when its file was deleted, moved or
+  replaced externally;
 - added `--show-esi` for opt-in compact encrypted-identity records and
   `--show-security-context` for INFO-level MCC/MNC/LA/CCK context changes;
 - rotated long-running automatic log files at local midnight while retaining

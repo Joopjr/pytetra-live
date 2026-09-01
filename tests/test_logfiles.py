@@ -72,6 +72,52 @@ class CellLogHandlerTestCase(unittest.TestCase):
             self.assertNotIn("after midnight", first.read_text(encoding="utf-8"))
             self.assertIn("after midnight", second.read_text(encoding="utf-8"))
 
+    def test_deleted_active_log_is_recreated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handler = CellLogHandler(directory)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            first = logging.LogRecord(
+                "test", logging.INFO, __file__, 1,
+                "DL; MCC(204), MNC(1000), LA(2333); first", (), None,
+            )
+            second = logging.LogRecord(
+                "test", logging.INFO, __file__, 1, "second", (), None,
+            )
+
+            handler.emit(first)
+            path = handler.path
+            path.unlink()
+            handler.emit(second)
+            handler.close()
+
+            self.assertTrue(path.exists())
+            self.assertEqual(path.read_text(encoding="utf-8").strip(), "second")
+
+    def test_replaced_active_log_is_reopened(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handler = CellLogHandler(directory)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            first = logging.LogRecord(
+                "test", logging.INFO, __file__, 1,
+                "DL; MCC(204), MNC(1000), LA(2333); first", (), None,
+            )
+            second = logging.LogRecord(
+                "test", logging.INFO, __file__, 1, "second", (), None,
+            )
+
+            handler.emit(first)
+            path = handler.path
+            rotated = path.with_suffix(".log.old")
+            path.rename(rotated)
+            path.write_text("replacement\n", encoding="utf-8")
+            handler.emit(second)
+            handler.close()
+
+            self.assertEqual(
+                path.read_text(encoding="utf-8"), "replacement\nsecond\n"
+            )
+            self.assertIn("first", rotated.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
