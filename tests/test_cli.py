@@ -20,16 +20,16 @@ class CliTestCase(unittest.TestCase):
         self.assertIsNone(args.gain)
         self.assertIsNone(args.center_frequency)
         self.assertFalse(args.show_esi)
-        self.assertFalse(args.show_security_context)
+        self.assertFalse(args.show_telemetry)
 
     def test_optional_protocol_output_arguments(self):
         parser = build_argument_parser()
         required = ["--host", "127.0.0.1", "--port", "5556", "--frequency", "1"]
         args = parser.parse_args(
-            required + ["--show-esi", "--show-security-context"]
+            required + ["--show-esi", "--show-telemetry"]
         )
         self.assertTrue(args.show_esi)
-        self.assertTrue(args.show_security_context)
+        self.assertTrue(args.show_telemetry)
 
     def test_log_arguments_accept_no_value_or_directory(self):
         parser = build_argument_parser()

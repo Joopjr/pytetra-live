@@ -22,7 +22,6 @@ def recording_decoder_process(
     queued_bursts,
     debug,
     show_esi,
-    show_security_context,
 ):
     """Picklable CI worker that verifies ordering and serialized payloads."""
     received = []
@@ -62,12 +61,10 @@ class QueuedBridgeTestCase(unittest.TestCase):
                 user_layer,
                 debug=False,
                 show_esi=False,
-                show_security_context=False,
             ):
                 self.user_layer = user_layer
                 self.debug = debug
                 self.show_esi = show_esi
-                self.show_security_context = show_security_context
 
         fake_cli = types.ModuleType("pytetra.cli")
         fake_cli.ConsoleUserLayer = object
@@ -120,12 +117,11 @@ class QueuedBridgeTestCase(unittest.TestCase):
         }
 
         with patch.dict(sys.modules, modules):
-            PyTetraBridge(show_esi=True, show_security_context=True)
+            PyTetraBridge(show_esi=True)
 
         self.assertEqual(created, [{
             "debug": False,
             "show_esi": True,
-            "show_security_context": True,
         }])
 
     def test_only_compact_layer2_and_layer3_use_pytetra_level(self):

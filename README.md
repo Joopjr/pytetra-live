@@ -122,15 +122,17 @@ when their normal TETRA CRC succeeds; failed blocks remain discarded. The
 compatible `.bits` output intentionally remains hard-decision data.
 
 PyTetra decoding runs in a separate ordered worker queue so convolutional and
-protocol decoding cannot stall IQ reception. Every 30 seconds the normal log
-reports the DSP real-time factor, IQ depth, queued decoder batches and bursts,
-decoder overruns, discarded bursts, and the time
-share of the resampler, filter, carrier, timing, and framing stages.
+protocol decoding cannot stall IQ reception. With `--show-telemetry`, the log
+reports every 30 seconds the DSP real-time factor, IQ depth, queued decoder
+batches and bursts, decoder overruns, discarded bursts, signal quality, and
+the time share of the resampler, filter, carrier, timing, and framing stages.
+Debug mode includes this telemetry automatically.
 
 Bursts produced by one DSP block are transferred to the decoder as one ordered
 batch. Decoded Layer-2 and Layer-3 records use the `PYTETRA` log label;
-SpyServer, DSP, performance, signal-quality, and lifecycle messages retain the
-normal `INFO` label.
+SpyServer, DSP telemetry, security-context, and lifecycle messages retain the
+normal `INFO` label. The first complete security context is emitted once per
+run without requiring an option.
 
 Use `--log` to save the normal output in the current directory. Use
 `--log DIRECTORY` to select another directory. The file is named after the
@@ -210,7 +212,7 @@ I0 Q0 I1 Q1 ...
 | `--no-decode` | Do not import or feed PyTetra |
 | `--debug` | Show DSP state and complete PyTetra diagnostics |
 | `--show-esi` | Include mode-2/3 ESI records in compact decoded output |
-| `--show-security-context` | Log MCC/MNC/LA/CCK context changes at INFO level |
+| `--show-telemetry` | Periodically log DSP performance and signal quality |
 | `--log [DIRECTORY]` | Save normal output using an automatic cell filename |
 | `--logdebug [DIRECTORY]` | Save complete debug output using a cell filename |
 | `--no-reconnect` | Stop on network failure |

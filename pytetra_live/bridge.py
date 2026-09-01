@@ -51,12 +51,10 @@ class PyTetraBridge:
         debug=False,
         line_writer=None,
         show_esi=False,
-        show_security_context=False,
     ):
         self.debug = bool(debug)
         self.line_writer = line_writer
         self.show_esi = bool(show_esi)
-        self.show_security_context = bool(show_security_context)
         self.stack = None
         self.resets = 0
         self._create_stack()
@@ -81,7 +79,6 @@ class PyTetraBridge:
             ConsoleUserLayer,
             debug=self.debug,
             show_esi=self.show_esi,
-            show_security_context=self.show_security_context,
         )
 
     def reset(self):
@@ -123,7 +120,6 @@ def _decoder_process(
     queued_bursts,
     debug,
     show_esi,
-    show_security_context,
 ):
     """Run stateful PyTetra decoding outside the DSP interpreter process."""
     try:
@@ -133,7 +129,6 @@ def _decoder_process(
             debug=debug,
             line_writer=output.put,
             show_esi=show_esi,
-            show_security_context=show_security_context,
         )
         while True:
             event = events.get()
@@ -183,7 +178,6 @@ class QueuedPyTetraBridge:
         debug=False,
         capacity=512,
         show_esi=False,
-        show_security_context=False,
         _worker_target=None,
     ):
         context = multiprocessing.get_context("spawn")
@@ -206,7 +200,6 @@ class QueuedPyTetraBridge:
                 self.queued_bursts,
                 bool(debug),
                 bool(show_esi),
-                bool(show_security_context),
             ),
             name="pytetra-decoder",
             daemon=True,

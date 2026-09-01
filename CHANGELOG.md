@@ -4,8 +4,11 @@
 
 - automatically reopened an active log when its file was deleted, moved or
   replaced externally;
-- added `--show-esi` for opt-in compact encrypted-identity records and
-  `--show-security-context` for INFO-level MCC/MNC/LA/CCK context changes;
+- added `--show-esi` for opt-in compact encrypted-identity records;
+- moved periodic performance and signal-quality records behind
+  `--show-telemetry`, while retaining them automatically in debug mode;
+- made the first complete MCC/MNC/LA/CCK security context a standard INFO
+  record without requiring an option;
 - rotated long-running automatic log files at local midnight while retaining
   the detected MCC, MNC and LA in each new daily filename;
 - added `--log [DIRECTORY]` and `--logdebug [DIRECTORY]` with automatic

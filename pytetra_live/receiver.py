@@ -43,7 +43,7 @@ class LiveReceiver:
         sample_rate=None,
         debug=False,
         show_esi=False,
-        show_security_context=False,
+        show_telemetry=False,
         decode=True,
         bits_output=None,
         iq_output=None,
@@ -58,11 +58,11 @@ class LiveReceiver:
         self.gain = gain
         self.sample_rate = sample_rate
         self.debug = bool(debug)
+        self.show_telemetry = bool(show_telemetry or debug)
         self.bridge = (
             QueuedPyTetraBridge(
                 debug=debug,
                 show_esi=show_esi,
-                show_security_context=show_security_context,
             )
             if decode
             else None
@@ -189,7 +189,10 @@ class LiveReceiver:
             reader.start()
             observed_generation = generation[0]
             processed_discontinuities = 0
-            next_performance_log = time.monotonic() + 30.0
+            next_performance_log = (
+                time.monotonic() + 30.0
+                if self.show_telemetry else float("inf")
+            )
             previous_accepted = 0
             previous_rejected = 0
             previous_training_errors = 0
