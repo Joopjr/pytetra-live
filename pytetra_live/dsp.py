@@ -240,6 +240,7 @@ class StreamingGardner:
         self.filtered_error = 0.0
         self.clock_error = 0.0
         self.energy_reference = 1e-6
+        self.energy_samples_until_update = 0
         self.error_square_sum = 0.0
         self.error_count = 0
 
@@ -253,8 +254,15 @@ class StreamingGardner:
         self.buffer = np.concatenate((self.buffer, np.asarray(samples, dtype=np.complex64)))
         if len(self.buffer) < 8:
             return np.empty(0, dtype=np.complex64)
-        block_energy = float(np.percentile(np.abs(self.buffer) ** 2, 60))
-        self.energy_reference += 0.05 * (max(block_energy, 1e-12) - self.energy_reference)
+        self.energy_samples_until_update -= len(samples)
+        if self.energy_samples_until_update <= 0:
+            window = self.buffer[-4096:]
+            power = window.real * window.real + window.imag * window.imag
+            block_energy = float(np.percentile(power, 60))
+            self.energy_reference += 0.05 * (
+                max(block_energy, 1e-12) - self.energy_reference
+            )
+            self.energy_samples_until_update = 4096
         data = self.buffer
         position = self.position
         omega = self.omega
@@ -680,15 +688,16 @@ class LiveTetraDemodulator:
             CHANNEL_CUTOFF,
             fs=self.input_rate,
             window=("kaiser", 7.0),
-        ).astype(np.float64)
+        ).astype(np.float32)
+        self.filter_denominator = np.ones(1, dtype=np.float32)
         self.channel_filter_state = np.zeros(
-            len(self.channel_taps) - 1, dtype=np.complex128
+            len(self.channel_taps) - 1, dtype=np.complex64
         )
         self.normalizer = StreamingRmsNormalizer()
         self.signal_monitor = SignalQualityMonitor(self.input_rate)
         self.resampler = StreamingResampler(self.input_rate, WORK_RATE)
-        self.taps = rrc_taps()
-        self.filter_state = np.zeros(len(self.taps) - 1, dtype=np.complex128)
+        self.taps = rrc_taps().astype(np.float32)
+        self.filter_state = np.zeros(len(self.taps) - 1, dtype=np.complex64)
         self.acquisition_samples = int(float(acquisition_seconds) * WORK_RATE)
         self.acquisition = []
         self.carrier = None
@@ -712,11 +721,11 @@ class LiveTetraDemodulator:
         )
         self.resampler = StreamingResampler(self.input_rate, WORK_RATE)
         self.channel_filter_state = np.zeros(
-            len(self.channel_taps) - 1, dtype=np.complex128
+            len(self.channel_taps) - 1, dtype=np.complex64
         )
         self.normalizer = StreamingRmsNormalizer()
         self.signal_monitor = SignalQualityMonitor(self.input_rate)
-        self.filter_state = np.zeros(len(self.taps) - 1, dtype=np.complex128)
+        self.filter_state = np.zeros(len(self.taps) - 1, dtype=np.complex64)
         self.acquisition = []
         self.carrier = (
             CarrierPLL(WORK_RATE, retained_frequency)
@@ -739,7 +748,7 @@ class LiveTetraDemodulator:
         stage_started = time.perf_counter()
         channel_filtered, self.channel_filter_state = signal.lfilter(
             self.channel_taps,
-            [1.0],
+            self.filter_denominator,
             shifted,
             zi=self.channel_filter_state,
         )
@@ -756,7 +765,7 @@ class LiveTetraDemodulator:
             return [], False
         stage_started = time.perf_counter()
         filtered, self.filter_state = signal.lfilter(
-            self.taps, [1.0], resampled, zi=self.filter_state
+            self.taps, self.filter_denominator, resampled, zi=self.filter_state
         )
         filtered = filtered.astype(np.complex64)
         self.stats.filter_seconds += time.perf_counter() - stage_started

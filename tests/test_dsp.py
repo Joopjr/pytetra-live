@@ -48,6 +48,23 @@ class DspTestCase(unittest.TestCase):
         )
         self.assertLessEqual(abs(drift_ppm), recovery.MAX_CLOCK_PPM + 1e-6)
 
+    def test_demodulator_filter_pipeline_stays_single_precision(self):
+        demodulator = LiveTetraDemodulator(93750.0)
+        self.assertEqual(demodulator.channel_taps.dtype, np.float32)
+        self.assertEqual(demodulator.channel_filter_state.dtype, np.complex64)
+        self.assertEqual(demodulator.taps.dtype, np.float32)
+        self.assertEqual(demodulator.filter_state.dtype, np.complex64)
+
+        samples = np.zeros(2048, dtype=np.complex64)
+        filtered, state = signal.lfilter(
+            demodulator.channel_taps,
+            demodulator.filter_denominator,
+            samples,
+            zi=demodulator.channel_filter_state,
+        )
+        self.assertEqual(filtered.dtype, np.complex64)
+        self.assertEqual(state.dtype, np.complex64)
+
     def test_signal_monitor_reports_level_and_in_band_snr(self):
         sample_rate = 93750.0
         rng = np.random.default_rng(7)

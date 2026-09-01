@@ -2,6 +2,11 @@
 
 ## 1.0.0
 
+- kept channel and matched-filter taps and state in float32/complex64 to
+  reduce memory bandwidth and temporary allocation pressure;
+- rate-limited Gardner energy-percentile updates to a bounded sample window,
+  retaining robust weak-signal gating without recalculating it per IQ block;
+
 - made the decoder child ignore terminal interrupts so Ctrl-C is handled by
   the parent as a normal ordered shutdown instead of a decoder failure;
 - added separate queued-batch, queued-burst, and discarded-burst telemetry,
