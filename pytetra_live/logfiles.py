@@ -1,5 +1,6 @@
 """Deferred cell-aware log-file creation."""
 
+import copy
 from datetime import datetime
 import logging
 import os
@@ -8,6 +9,7 @@ import re
 
 
 CELL_PATTERN = re.compile(r"MCC\((\d+)\), MNC\((\d+)\), LA\((\d+)\)")
+SECURITY_CONTEXT_PREFIX = "SecurityContext("
 
 
 class CellLogHandler(logging.Handler):
@@ -24,9 +26,17 @@ class CellLogHandler(logging.Handler):
         self._file_handler = None
         self._identity = None
         self._active_date = None
+        self._security_context_record = None
         self.path = None
 
-    def _open(self, record, mcc=None, mnc=None, la=None):
+    def _open(
+        self,
+        record,
+        mcc=None,
+        mnc=None,
+        la=None,
+        repeat_security_context=False,
+    ):
         timestamp = datetime.fromtimestamp(record.created)
         if mcc is not None:
             self._identity = (mcc, mnc, la)
@@ -50,6 +60,11 @@ class CellLogHandler(logging.Handler):
         for buffered_record in self._buffer:
             self._file_handler.emit(buffered_record)
         self._buffer.clear()
+        if repeat_security_context and self._security_context_record is not None:
+            context_record = copy.copy(self._security_context_record)
+            context_record.created = record.created
+            context_record.msecs = (record.created - int(record.created)) * 1000
+            self._file_handler.emit(context_record)
 
     def _active_file_is_missing_or_replaced(self):
         """Return whether the pathname no longer names the open log file."""
@@ -67,20 +82,34 @@ class CellLogHandler(logging.Handler):
 
     def emit(self, record):
         try:
+            is_security_context = record.getMessage().startswith(
+                SECURITY_CONTEXT_PREFIX
+            )
             if self._file_handler is None:
                 match = CELL_PATTERN.search(record.getMessage())
                 if match:
                     self._open(record, *match.groups())
                 else:
+                    if is_security_context:
+                        self._security_context_record = copy.copy(record)
                     self._buffer.append(record)
                     if len(self._buffer) > self.MAX_BUFFERED_RECORDS:
                         self._buffer.pop(0)
                     return
             record_date = datetime.fromtimestamp(record.created).date()
+            repeat_context = not is_security_context
             if record_date != self._active_date:
-                self._open(record)
+                self._open(
+                    record,
+                    repeat_security_context=repeat_context,
+                )
             elif self._active_file_is_missing_or_replaced():
-                self._open(record)
+                self._open(
+                    record,
+                    repeat_security_context=repeat_context,
+                )
+            if is_security_context:
+                self._security_context_record = copy.copy(record)
             self._file_handler.emit(record)
         except Exception:
             self.handleError(record)

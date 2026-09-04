@@ -72,6 +72,50 @@ class CellLogHandlerTestCase(unittest.TestCase):
             self.assertNotIn("after midnight", first.read_text(encoding="utf-8"))
             self.assertIn("after midnight", second.read_text(encoding="utf-8"))
 
+    def test_security_context_is_repeated_in_each_new_daily_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            handler = CellLogHandler(directory)
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+            )
+            context = logging.LogRecord(
+                "test", logging.INFO, __file__, 1,
+                "SecurityContext(MCC(204), MNC(9999), LA(42), CCKId(5), "
+                "EncryptionModeParity(odd))",
+                (), None,
+            )
+            context.created = datetime(2026, 9, 1, 23, 59, 58).timestamp()
+            before_midnight = logging.LogRecord(
+                "test", logging.INFO, __file__, 1, "before midnight", (), None,
+            )
+            before_midnight.created = datetime(
+                2026, 9, 1, 23, 59, 59
+            ).timestamp()
+            after_midnight = logging.LogRecord(
+                "test", logging.INFO, __file__, 1, "after midnight", (), None,
+            )
+            after_midnight.created = datetime(
+                2026, 9, 2, 0, 0, 1
+            ).timestamp()
+
+            handler.emit(context)
+            handler.emit(before_midnight)
+            handler.emit(after_midnight)
+            handler.close()
+
+            first = Path(directory) / "2026-09-01 MCC204 MNC9999 LA42.log"
+            second = Path(directory) / "2026-09-02 MCC204 MNC9999 LA42.log"
+            first_contents = first.read_text(encoding="utf-8")
+            second_contents = second.read_text(encoding="utf-8")
+
+            self.assertEqual(first_contents.count("SecurityContext("), 1)
+            self.assertEqual(second_contents.count("SecurityContext("), 1)
+            self.assertIn("2026-09-02 00:00:01", second_contents)
+            self.assertLess(
+                second_contents.index("SecurityContext("),
+                second_contents.index("after midnight"),
+            )
+
     def test_deleted_active_log_is_recreated(self):
         with tempfile.TemporaryDirectory() as directory:
             handler = CellLogHandler(directory)
