@@ -151,12 +151,14 @@ SpyServer, DSP telemetry, security-context, and lifecycle messages retain the
 normal `INFO` label. The first complete security context is emitted once per
 run without requiring an option.
 
-Use `--log` to save the normal output in the current directory. Use
-`--log DIRECTORY` to select another directory. The file is named after the
-first decoded cell, for example `2026-09-01 MCC204 MNC9999 LA42.log`. All
-identities and location-area values in the documentation are synthetic.
-`--logdebug [DIRECTORY]` records the complete debug stream instead and adds
-` debug` to the filename. The two file options are mutually exclusive.
+Use `--log` to save normal output in the `logs` directory at the
+PyTetra-live project root. Use `--log DIRECTORY` to select another directory.
+The file is named after the first decoded cell, for example
+`2026-09-01 MCC204 MNC9999 LA42.log`. All identities and location-area values
+in the documentation are synthetic. `--logdebug` uses the same default
+`logs` directory and records the complete debug stream; an optional directory
+overrides that location. Debug filenames include the ` debug` suffix. The two
+file options are mutually exclusive.
 Long-running logs automatically rotate to a new dated file at local midnight.
 If an active log is deleted, moved or replaced externally, PyTetra-live detects
 this before the next record and safely reopens the expected log path.

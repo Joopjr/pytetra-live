@@ -3,7 +3,11 @@ import argparse
 import contextlib
 import io
 
-from pytetra_live.cli import build_argument_parser, telemetry_interval
+from pytetra_live.cli import (
+    DEFAULT_LOG_DIRECTORY,
+    build_argument_parser,
+    telemetry_interval,
+)
 
 
 class CliTestCase(unittest.TestCase):
@@ -48,12 +52,18 @@ class CliTestCase(unittest.TestCase):
     def test_log_arguments_accept_no_value_or_directory(self):
         parser = build_argument_parser()
         required = ["--host", "127.0.0.1", "--port", "5556", "--frequency", "1"]
-        self.assertEqual(parser.parse_args(required + ["--log"]).log, ".")
+        self.assertEqual(
+            parser.parse_args(required + ["--log"]).log,
+            str(DEFAULT_LOG_DIRECTORY),
+        )
         self.assertEqual(
             parser.parse_args(required + ["--log", "C:\\logs"]).log,
             "C:\\logs",
         )
-        self.assertEqual(parser.parse_args(required + ["--logdebug"]).logdebug, ".")
+        self.assertEqual(
+            parser.parse_args(required + ["--logdebug"]).logdebug,
+            str(DEFAULT_LOG_DIRECTORY),
+        )
 
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):

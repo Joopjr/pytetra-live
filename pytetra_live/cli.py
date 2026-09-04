@@ -12,6 +12,9 @@ from .logfiles import CellLogHandler
 from .receiver import LiveReceiver
 
 
+DEFAULT_LOG_DIRECTORY = Path(__file__).resolve().parent.parent / "logs"
+
+
 def positive_port(value):
     port = int(value)
     if not 1 <= port <= 65535:
@@ -97,16 +100,22 @@ def build_argument_parser():
     log_group.add_argument(
         "--log",
         nargs="?",
-        const=".",
+        const=str(DEFAULT_LOG_DIRECTORY),
         metavar="DIRECTORY",
-        help="write normal output to an optional directory (default: current directory)",
+        help=(
+            "write normal output to an optional directory "
+            "(default: the PyTetra-live logs directory)"
+        ),
     )
     log_group.add_argument(
         "--logdebug",
         nargs="?",
-        const=".",
+        const=str(DEFAULT_LOG_DIRECTORY),
         metavar="DIRECTORY",
-        help="write full debug output to an optional directory (default: current directory)",
+        help=(
+            "write full debug output to an optional directory "
+            "(default: the PyTetra-live logs directory)"
+        ),
     )
     parser.add_argument("--version", action="version", version=__version__)
     return parser
