@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.0
+
+- changed bare `--log` and `--logdebug` options to write into the
+  PyTetra-live project-level `logs` directory, while retaining explicit
+  directory overrides;
+- retained the latest decoded security context and repeated it when a new
+  daily log is opened, using the new file's timestamp and avoiding duplicate
+  output when the first record is already an updated context;
+- changed `--bits-output` and `--iq-output` into optional-directory
+  arguments whose bare forms use the project-level `output` directory;
+- added date/MCC/MNC/LA filenames and automatic local-midnight rotation for
+  unpacked burst and normalized IQ recordings;
+- preserved IQ and burst data captured before cell identification in a
+  temporary unknown-cell file, promoting it to the decoded cell filename
+  without overwriting existing recordings;
+- ensured pending decoder output is drained before recording sinks close so a
+  final cell or security-context record can still name active output files.
+
 ## 1.0.0
 
 - consolidated duplicate telemetry guidance into one dedicated manual section
