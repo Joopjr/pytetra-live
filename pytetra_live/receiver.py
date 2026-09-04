@@ -63,16 +63,17 @@ class LiveReceiver:
             if show_telemetry is not None
             else (30.0 if debug else None)
         )
+        self.bits = BitFileSink(bits_output)
+        self.iq = IqFileSink(iq_output)
         self.bridge = (
             QueuedPyTetraBridge(
                 debug=debug,
                 show_esi=show_esi,
+                output_observer=self._observe_pytetra_output,
             )
             if decode
             else None
         )
-        self.bits = BitFileSink(bits_output)
-        self.iq = IqFileSink(iq_output)
         self.reconnect = bool(reconnect)
         self.reconnect_delay = float(reconnect_delay)
         self.timeout = float(timeout)
@@ -81,6 +82,10 @@ class LiveReceiver:
 
     def stop(self):
         self.stop_requested = True
+
+    def _observe_pytetra_output(self, message):
+        self.bits.observe_pytetra_output(message)
+        self.iq.observe_pytetra_output(message)
 
     def _run_connection(self, duration=None):
         client = SpyServerClient(self.host, self.port, timeout=self.timeout)
@@ -392,9 +397,11 @@ class LiveReceiver:
                         self.bridge.reset()
                     time.sleep(self.reconnect_delay)
         finally:
-            self.bits.close()
-            self.iq.close()
-            if self.bridge is not None:
-                self.stats.decoder_overruns = self.bridge.overruns
-                self.bridge.close()
+            try:
+                if self.bridge is not None:
+                    self.stats.decoder_overruns = self.bridge.overruns
+                    self.bridge.close()
+            finally:
+                self.bits.close()
+                self.iq.close()
         return self.stats

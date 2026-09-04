@@ -1,4 +1,6 @@
+from datetime import datetime
 import logging
+from pathlib import Path
 import queue
 import unittest
 import sys
@@ -8,6 +10,8 @@ from unittest.mock import patch
 import numpy as np
 
 from pytetra_live.bridge import (
+    BitFileSink,
+    IqFileSink,
     PYTETRA_LEVEL,
     PyTetraBridge,
     QueuedPyTetraBridge,
@@ -44,6 +48,50 @@ def recording_decoder_process(
             received.append((kind, len(hard), len(soft), count))
         else:
             received.append((kind, None, None))
+
+
+class CellOutputSinkTestCase(unittest.TestCase):
+    def test_pending_bits_file_gets_cell_name_and_rotates_daily(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            sink = BitFileSink(directory)
+            sink.write(
+                np.asarray([0, 1], dtype=np.uint8),
+                created=datetime(2026, 9, 1, 23, 59, 59),
+            )
+            sink.observe_pytetra_output(
+                "SecurityContext(MCC(204), MNC(9999), LA(42), CCKId(5))"
+            )
+            sink.write(
+                np.asarray([1, 0], dtype=np.uint8),
+                created=datetime(2026, 9, 2, 0, 0, 1),
+            )
+            sink.close()
+
+            first = Path(directory) / "2026-09-01 MCC204 MNC9999 LA42.bits"
+            second = Path(directory) / "2026-09-02 MCC204 MNC9999 LA42.bits"
+            self.assertEqual(first.read_bytes(), b"\x00\x01")
+            self.assertEqual(second.read_bytes(), b"\x01\x00")
+            self.assertEqual(list(Path(directory).glob("*unknown*")), [])
+
+    def test_iq_output_uses_cell_aware_filename(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            sink = IqFileSink(directory)
+            sink.observe_pytetra_output(
+                "DL; MCC(204), MNC(9999), LA(42); Layer 2 - MAC(Example)"
+            )
+            sink.write(
+                np.asarray([1.0 + 2.0j], dtype=np.complex64),
+                created=datetime(2026, 9, 1, 12, 0, 0),
+            )
+            sink.close()
+
+            path = Path(directory) / "2026-09-01 MCC204 MNC9999 LA42.iq"
+            values = np.frombuffer(path.read_bytes(), dtype="<f4")
+            np.testing.assert_array_equal(values, [1.0, 2.0])
 
 
 class QueuedBridgeTestCase(unittest.TestCase):

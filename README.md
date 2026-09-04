@@ -163,6 +163,17 @@ Long-running logs automatically rotate to a new dated file at local midnight.
 If an active log is deleted, moved or replaced externally, PyTetra-live detects
 this before the next record and safely reopens the expected log path.
 
+## IQ and bit output
+
+Use `--bits-output` or `--iq-output` without a value to write into the
+`output` directory at the PyTetra-live project root. Supplying a directory
+overrides that location. Files use the same date and decoded cell identity as
+logs, for example `2026-09-01 MCC204 MNC9999 LA42.bits` and
+`2026-09-01 MCC204 MNC9999 LA42.iq`. A new file is opened at local midnight.
+Data received before the first cell identity is decoded is retained in a
+temporary unknown-cell file and moved into the correct cell file as soon as
+the identity becomes available.
+
 ## Telemetry
 
 When `--show-telemetry [INTERVAL]` is enabled, each `Signal quality` line
@@ -186,7 +197,7 @@ pytetra-live \
     --host 127.0.0.1 \
     --port 5556 \
     --frequency 412475000 \
-    --bits-output live.bits
+    --bits-output
 ```
 
 Write normalized IQ as interleaved little-endian float32 values:
@@ -196,7 +207,7 @@ pytetra-live \
     --host 127.0.0.1 \
     --port 5556 \
     --frequency 412475000 \
-    --iq-output live.cf32 \
+    --iq-output \
     --no-decode
 ```
 
@@ -217,8 +228,8 @@ I0 Q0 I1 Q1 ...
 | `--center-frequency HZ` | Request an explicit IQ center |
 | `--gain INDEX` | Request a device gain index |
 | `--sample-rate HZ` | Request at least this IQ sample rate |
-| `--bits-output PATH` | Append validated unpacked bursts |
-| `--iq-output PATH` | Append normalized float32 IQ |
+| `--bits-output [DIRECTORY]` | Save validated bursts in daily, cell-aware `.bits` files |
+| `--iq-output [DIRECTORY]` | Save normalized IQ in daily, cell-aware `.iq` files |
 | `--no-decode` | Do not import or feed PyTetra |
 | `--debug` | Show DSP state and complete PyTetra diagnostics |
 | `--show-esi` | Include mode-2/3 ESI records in compact decoded output |

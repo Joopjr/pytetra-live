@@ -12,7 +12,9 @@ from .logfiles import CellLogHandler
 from .receiver import LiveReceiver
 
 
-DEFAULT_LOG_DIRECTORY = Path(__file__).resolve().parent.parent / "logs"
+PROJECT_DIRECTORY = Path(__file__).resolve().parent.parent
+DEFAULT_LOG_DIRECTORY = PROJECT_DIRECTORY / "logs"
+DEFAULT_OUTPUT_DIRECTORY = PROJECT_DIRECTORY / "output"
 
 
 def positive_port(value):
@@ -72,8 +74,26 @@ def build_argument_parser():
     )
     parser.add_argument("--gain", type=int, help="optional device gain index")
     parser.add_argument("--sample-rate", type=float, help="minimum requested IQ sample rate")
-    parser.add_argument("--bits-output", help="append validated bursts to an unpacked .bits file")
-    parser.add_argument("--iq-output", help="append normalized interleaved float32 IQ")
+    parser.add_argument(
+        "--bits-output",
+        nargs="?",
+        const=str(DEFAULT_OUTPUT_DIRECTORY),
+        metavar="DIRECTORY",
+        help=(
+            "save validated bursts in daily cell-aware .bits files "
+            "(default: the PyTetra-live output directory)"
+        ),
+    )
+    parser.add_argument(
+        "--iq-output",
+        nargs="?",
+        const=str(DEFAULT_OUTPUT_DIRECTORY),
+        metavar="DIRECTORY",
+        help=(
+            "save normalized IQ in daily cell-aware .iq files "
+            "(default: the PyTetra-live output directory)"
+        ),
+    )
     parser.add_argument("--no-decode", action="store_true", help="do not feed bursts into PyTetra")
     parser.add_argument("--no-reconnect", action="store_true", help="stop after a connection failure")
     parser.add_argument("--reconnect-delay", type=float, default=2.0)

@@ -5,6 +5,7 @@ import io
 
 from pytetra_live.cli import (
     DEFAULT_LOG_DIRECTORY,
+    DEFAULT_OUTPUT_DIRECTORY,
     build_argument_parser,
     telemetry_interval,
 )
@@ -48,6 +49,24 @@ class CliTestCase(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(argparse.ArgumentTypeError):
                     telemetry_interval(value)
+
+    def test_output_arguments_accept_no_value_or_directory(self):
+        parser = build_argument_parser()
+        required = ["--host", "127.0.0.1", "--port", "5556", "--frequency", "1"]
+        self.assertEqual(
+            parser.parse_args(required + ["--bits-output"]).bits_output,
+            str(DEFAULT_OUTPUT_DIRECTORY),
+        )
+        self.assertEqual(
+            parser.parse_args(
+                required + ["--bits-output", "C:\\captures"]
+            ).bits_output,
+            "C:\\captures",
+        )
+        self.assertEqual(
+            parser.parse_args(required + ["--iq-output"]).iq_output,
+            str(DEFAULT_OUTPUT_DIRECTORY),
+        )
 
     def test_log_arguments_accept_no_value_or_directory(self):
         parser = build_argument_parser()

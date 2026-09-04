@@ -1,14 +1,19 @@
 """Optional direct bridge from validated bursts into PyTetra."""
 
+from datetime import datetime
 import logging
 import multiprocessing
 import queue
+from pathlib import Path
+import shutil
 import signal
 import threading
 import time
 import traceback
 
 import numpy as np
+
+from .logfiles import CELL_PATTERN
 
 
 LOG = logging.getLogger(__name__)
@@ -179,6 +184,7 @@ class QueuedPyTetraBridge:
         capacity=512,
         show_esi=False,
         _worker_target=None,
+        output_observer=None,
     ):
         context = multiprocessing.get_context("spawn")
         self.events = context.Queue(maxsize=max(4, int(capacity)))
@@ -191,6 +197,7 @@ class QueuedPyTetraBridge:
         self.queued_bursts = context.Value("q", 0)
         self._last_warning = 0.0
         self._reset_pending = False
+        self.output_observer = output_observer
         self.worker = context.Process(
             target=_worker_target or _decoder_process,
             args=(
@@ -229,6 +236,8 @@ class QueuedPyTetraBridge:
             message = self.output.get()
             if message is None:
                 return
+            if self.output_observer is not None:
+                self.output_observer(message)
             log_pytetra_output(message)
 
     def _raise_worker_error(self):
@@ -358,40 +367,130 @@ class QueuedPyTetraBridge:
         self._raise_worker_error()
 
 
-class BitFileSink:
-    def __init__(self, path=None):
-        self.path = path
-        self.file = open(path, "ab", buffering=0) if path else None
-        self.bits_written = 0
+class _RotatingCellFileSink:
+    """Append binary data to dated, cell-aware output files."""
 
-    def write(self, burst):
-        if self.file is not None:
-            self.file.write(bytes(int(bit) for bit in burst))
-        self.bits_written += len(burst)
+    def __init__(self, directory=None, suffix=""):
+        self.directory = (
+            Path(directory).expanduser().resolve()
+            if directory is not None
+            else None
+        )
+        if self.directory is not None:
+            self.directory.mkdir(parents=True, exist_ok=True)
+        self.suffix = suffix
+        self._identity = None
+        self._file_identity = None
+        self._active_date = None
+        self._file = None
+        self._lock = threading.Lock()
+        self.path = None
+
+    def _path_for(self, active_date, identity):
+        if identity is None:
+            name = "MCCunknown MNCunknown LAunknown"
+        else:
+            mcc, mnc, la = identity
+            name = "MCC%s MNC%s LA%s" % (mcc, mnc, la)
+        return self.directory / (
+            "%s %s%s" % (active_date.isoformat(), name, self.suffix)
+        )
+
+    def _open(self, active_date):
+        if self._file is not None:
+            self._file.close()
+        self._active_date = active_date
+        self._file_identity = self._identity
+        self.path = self._path_for(active_date, self._file_identity)
+        self._file = open(self.path, "ab", buffering=0)
+
+    def _promote_pending_file(self):
+        if (
+            self._file is None
+            or self._file_identity is not None
+            or self._identity is None
+        ):
+            return
+        old_path = self.path
+        active_date = self._active_date
+        self._file.close()
+        self._file = None
+        target = self._path_for(active_date, self._identity)
+        if old_path != target and old_path.exists():
+            if target.exists():
+                with open(old_path, "rb") as source, open(
+                    target, "ab", buffering=0
+                ) as destination:
+                    shutil.copyfileobj(source, destination)
+                old_path.unlink()
+            else:
+                old_path.replace(target)
+        self._file_identity = self._identity
+        self.path = target
+        self._file = open(target, "ab", buffering=0)
+
+    def observe_pytetra_output(self, message):
+        match = CELL_PATTERN.search(str(message))
+        if match is None:
+            return
+        identity = tuple(match.groups())
+        with self._lock:
+            if identity == self._identity:
+                return
+            previous_identity = self._identity
+            self._identity = identity
+            if self._file is None:
+                return
+            if previous_identity is None and self._file_identity is None:
+                self._promote_pending_file()
+            elif self._file_identity != identity:
+                self._open(self._active_date)
+
+    def _write_bytes(self, data, created=None):
+        if self.directory is None:
+            return
+        timestamp = (
+            datetime.now()
+            if created is None
+            else (
+                datetime.fromtimestamp(created)
+                if isinstance(created, (int, float))
+                else created
+            )
+        )
+        with self._lock:
+            if self._file is None or timestamp.date() != self._active_date:
+                self._open(timestamp.date())
+            self._file.write(data)
 
     def close(self):
-        if self.file is not None:
-            self.file.close()
-            self.file = None
+        with self._lock:
+            if self._file is not None:
+                self._file.close()
+                self._file = None
 
 
-class IqFileSink:
+class BitFileSink(_RotatingCellFileSink):
+    def __init__(self, directory=None):
+        super().__init__(directory, ".bits")
+        self.bits_written = 0
+
+    def write(self, burst, created=None):
+        self._write_bytes(bytes(int(bit) for bit in burst), created=created)
+        self.bits_written += len(burst)
+
+
+class IqFileSink(_RotatingCellFileSink):
     """Write normalized interleaved float32 IQ for reproducible diagnostics."""
 
-    def __init__(self, path=None):
-        self.path = path
-        self.file = open(path, "ab", buffering=0) if path else None
+    def __init__(self, directory=None):
+        super().__init__(directory, ".iq")
         self.samples_written = 0
 
-    def write(self, iq):
-        if self.file is not None:
+    def write(self, iq, created=None):
+        if self.directory is not None:
             interleaved = np.empty(len(iq) * 2, dtype="<f4")
             interleaved[0::2] = iq.real
             interleaved[1::2] = iq.imag
-            self.file.write(interleaved.tobytes())
+            self._write_bytes(interleaved.tobytes(), created=created)
         self.samples_written += len(iq)
-
-    def close(self):
-        if self.file is not None:
-            self.file.close()
-            self.file = None
