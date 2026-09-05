@@ -446,6 +446,22 @@ class BurstFramer:
         self.last_confidences = []
         self.accepted = 0
         self.training_error_sum = 0
+        self.realignments = 0
+
+    def _find_locked_realignment(self):
+        """Find a confirmed burst boundary without changing bit mapping.
+
+        A dropped or duplicated differential symbol moves every following
+        510-bit boundary.  Releasing the complete carrier/timing lock is both
+        unnecessary and expensive when the already mapped buffer contains a
+        new, independently confirmed synchronization burst.
+        """
+        if len(self.bits) < 3 * BURST_BITS:
+            return None
+        start = self._find_confirmed_sync(self.bits, self.soft_bits)
+        if start is None or start == 0:
+            return None
+        return start
 
     @staticmethod
     def _find_sync_candidates(bits):
@@ -559,6 +575,20 @@ class BurstFramer:
             burst = self.bits[:BURST_BITS]
             quality = burst_quality(burst)
             if quality is None:
+                realigned_start = self._find_locked_realignment()
+                if realigned_start is not None:
+                    self.bits = self.bits[realigned_start:]
+                    self.soft_bits = self.soft_bits[realigned_start:]
+                    self.consecutive_rejections = 0
+                    self.realignments += 1
+                    gap = True
+                    LOG.info(
+                        "TETRA burst boundary recovered: skipped_bits=%d "
+                        "realignments=%d",
+                        realigned_start,
+                        self.realignments,
+                    )
+                    continue
                 self.rejected += 1
                 self.consecutive_rejections += 1
                 gap = True
@@ -570,6 +600,7 @@ class BurstFramer:
                 if self.consecutive_rejections < self.rejection_limit:
                     continue
 
+                buffered_bits = len(self.bits)
                 self.mapping = None
                 self.locked = False
                 self.quadrant_buffer = np.empty(0, dtype=np.uint8)
@@ -578,8 +609,12 @@ class BurstFramer:
                 self.soft_bits = np.empty(0, dtype=np.float32)
                 self.consecutive_rejections = 0
                 LOG.info(
-                    "TETRA burst lock released after %d consecutive rejected bursts",
+                    "TETRA burst lock released after %d consecutive expected-burst "
+                    "failures: total_rejected=%d total_accepted=%d buffered_bits=%d",
                     self.rejection_limit,
+                    self.rejected,
+                    self.accepted,
+                    buffered_bits,
                 )
                 break
             bursts.append(burst.copy())

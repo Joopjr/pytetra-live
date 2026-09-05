@@ -2,6 +2,10 @@
 
 ## 1.1.0
 
+- added confirmed in-lock burst-boundary recovery so an isolated symbol slip
+  can be realigned without discarding carrier, timing, or quadrant mapping;
+- clarified lock-release diagnostics with expected-boundary failure, accepted,
+  rejected, and buffered-bit counters;
 - changed bare `--log` and `--logdebug` options to write into the
   PyTetra-live project-level `logs` directory, while retaining explicit
   directory overrides;

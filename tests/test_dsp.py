@@ -138,6 +138,25 @@ class DspTestCase(unittest.TestCase):
             self.assertFalse(gap)
             bursts.extend(decoded)
         self.assertEqual(len(bursts), 200)
+
+    def test_framer_recovers_shift_without_releasing_mapping(self):
+        path = self.fixture_path()
+        first_burst = np.fromfile(path, dtype=np.uint8)[:510]
+        bits = np.tile(first_burst, 12).reshape(-1, 2)
+        reverse = {(0, 0): 0, (0, 1): 1, (1, 1): 2, (1, 0): 3}
+        values = np.asarray([reverse[tuple(pair)] for pair in bits], dtype=np.uint8)
+        # Insert one differential symbol after acquisition. This shifts the
+        # mapped stream by two bits but leaves the following bursts intact.
+        shifted = np.concatenate((values[:4 * 255], values[4 * 255:4 * 255 + 1], values[4 * 255:]))
+        framer = BurstFramer(rejection_limit=4)
+
+        decoded, gap = framer.feed(shifted)
+
+        self.assertTrue(gap)
+        self.assertTrue(framer.locked)
+        self.assertIsNotNone(framer.mapping)
+        self.assertGreaterEqual(framer.realignments, 1)
+        self.assertGreater(len(decoded), 7)
         self.assertTrue(framer.locked)
 
     def test_framer_does_not_lock_on_one_unconfirmed_sync_burst(self):
