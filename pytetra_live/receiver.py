@@ -69,6 +69,7 @@ class LiveReceiver:
             QueuedPyTetraBridge(
                 debug=debug,
                 show_esi=show_esi,
+                carrier_frequency=self.frequency,
                 output_observer=self._observe_pytetra_output,
             )
             if decode
