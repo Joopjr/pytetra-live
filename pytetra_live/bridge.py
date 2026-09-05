@@ -56,10 +56,14 @@ class PyTetraBridge:
         debug=False,
         line_writer=None,
         show_esi=False,
+        carrier_frequency=None,
     ):
         self.debug = bool(debug)
         self.line_writer = line_writer
         self.show_esi = bool(show_esi)
+        self.carrier_frequency = (
+            int(carrier_frequency) if carrier_frequency is not None else None
+        )
         self.stack = None
         self.resets = 0
         self._create_stack()
@@ -84,6 +88,7 @@ class PyTetraBridge:
             ConsoleUserLayer,
             debug=self.debug,
             show_esi=self.show_esi,
+            carrier_frequency=self.carrier_frequency,
         )
 
     def reset(self):
@@ -125,6 +130,7 @@ def _decoder_process(
     queued_bursts,
     debug,
     show_esi,
+    carrier_frequency,
 ):
     """Run stateful PyTetra decoding outside the DSP interpreter process."""
     try:
@@ -134,6 +140,7 @@ def _decoder_process(
             debug=debug,
             line_writer=output.put,
             show_esi=show_esi,
+            carrier_frequency=carrier_frequency,
         )
         while True:
             event = events.get()
@@ -183,6 +190,7 @@ class QueuedPyTetraBridge:
         debug=False,
         capacity=512,
         show_esi=False,
+        carrier_frequency=None,
         _worker_target=None,
         output_observer=None,
     ):
@@ -207,6 +215,7 @@ class QueuedPyTetraBridge:
                 self.queued_bursts,
                 bool(debug),
                 bool(show_esi),
+                int(carrier_frequency) if carrier_frequency is not None else None,
             ),
             name="pytetra-decoder",
             daemon=True,
